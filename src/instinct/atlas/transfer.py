@@ -175,20 +175,36 @@ def run_transfer(
         raise KeyError(f"axis {axis} has values {keys}, not {source!r}/{target!r}")
 
     train, test = groups[source], groups[target]
-    # One curve per source cell; each is asked to predict every target cell, and
-    # the transfer is scored on the *average* source curve rather than the best,
-    # since picking the best in hindsight would leak the answer.
-    source_fits = fit_cells(family, list(train))
 
-    regrets: list[float] = []
-    taus: list[float] = []
-    hits: list[bool] = []
-    for target_cell in test:
-        cell_scores = [_score_against(f, target_cell) for f in source_fits]
-        regrets.append(float(np.mean([s[0] for s in cell_scores])))
-        finite = [s[1] for s in cell_scores if np.isfinite(s[1])]
-        taus.append(float(np.mean(finite)) if finite else float("nan"))
-        hits.append(bool(np.mean([s[2] for s in cell_scores]) > 0.5))
+    # Pair cells by CONTEXT -- everything held fixed other than the transfer
+    # axis. Without this the "speed transfer" asks a curve measured on
+    # (chase_chain, greedy, state 0) to predict (corridor_with_pit, hold,
+    # state 5), which is not a speed transfer at all but every axis at once.
+    # That is what produced a 0% argmax hit rate on every transfer including
+    # the ones that passed: a passing transfer that never picks the right
+    # budget was the signal that the pairing, not the surface, was wrong.
+    def context(cell: CurveData) -> tuple[object, ...]:
+        k = cell.key
+        full = {"env": k.env, "reflex": k.reflex, "nu_e": k.nu_e, "nu_h": k.nu_h}
+        del full[column]
+        return (*full.values(), k.start_state)
+
+    by_context_train: dict[tuple[object, ...], CurveData] = {context(c): c for c in train}
+    paired = [(by_context_train[context(c)], c) for c in test if context(c) in by_context_train]
+    if not paired:
+        return None
+
+    source_cells = [pair[0] for pair in paired]
+    target_cells = [pair[1] for pair in paired]
+    source_fits = fit_cells(family, source_cells)
+
+    regrets, taus, hits = [], [], []
+    for fit, target_cell in zip(source_fits, target_cells):
+        regret, tau, hit = _score_against(fit, target_cell)
+        regrets.append(regret)
+        taus.append(tau)
+        hits.append(hit)
+    test = target_cells
 
     # The floor: a curve fitted directly on each test cell.
     own_fits = fit_cells(family, list(test))
