@@ -25,7 +25,7 @@ from instinct.atlas.transfer import (
     transfer_suite,
 )
 from instinct.core.env import Timing
-from instinct.envs.tabular import chase_chain
+from instinct.core.envs.tabular import chase_chain
 
 BUDGETS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32]
 

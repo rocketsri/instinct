@@ -2,7 +2,7 @@
 
 P1's taxonomy needs at least one environment where staleness hurts a little bit
 more for every extra tick of delay, and at least one where it does nothing until
-it suddenly does everything. This module is the first kind; :mod:`instinct.envs.arcade`
+it suddenly does everything. This module is the first kind; :mod:`instinct.core.envs.arcade`
 is the second. Having both is what turns "the shape of the staleness curve" from
 an assumption into a measurement.
 
@@ -14,8 +14,8 @@ at where the target *was*; the target has since diffused about ``sqrt(d)`` cells
 away, so the mismatch grows continuously in ``d`` with no cliff anywhere. Nothing
 in the environment is absorbing, so ``L_irreversible`` is zero **by construction**
 here — that is the point. It is the contrast partner for the arcade games, in the
-same way :func:`~instinct.envs.tabular.chase_chain` is the contrast partner for
-:func:`~instinct.envs.tabular.corridor_with_pit`.
+same way :func:`~instinct.core.envs.tabular.chase_chain` is the contrast partner for
+:func:`~instinct.core.envs.tabular.corridor_with_pit`.
 
 Two representation choices carry the vectorization:
 

@@ -38,8 +38,8 @@ from instinct.atlas.kill import KillReport, evaluate_kill_conditions, render_mar
 from instinct.atlas.schema import to_frame, validate_frame
 from instinct.atlas.transfer import TransferResult, transfer_suite
 from instinct.core.env import Timing
+from instinct.core.envs.tabular import chase_chain, corridor_with_pit
 from instinct.core.mdp import TabularMDP
-from instinct.envs.tabular import chase_chain, corridor_with_pit
 
 __all__ = ["SweepConfig", "SweepResult", "run_sweep", "write_report"]
 

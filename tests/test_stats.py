@@ -14,7 +14,7 @@ import itertools
 import numpy as np
 import pytest
 
-from instinct.certify.confseq import (
+from instinct.core.confseq import (
     ConfidenceSequence,
     empirical_bernstein_radius,
     normal_mixture_radius,
