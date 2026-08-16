@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.benchmarks/
+
+# Experiment outputs. Reports are committed; raw sweep artifacts are not.
+results/
+runs/
+cache/
+!reports/
+*.parquet
+*.jsonl
+*.npz
+*.pt
+*.ckpt
+
+.DS_Store
+.env

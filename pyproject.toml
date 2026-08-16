@@ -1,0 +1,108 @@
+[project]
+name = "instinct"
+version = "0.1.0"
+description = "Experiment infrastructure for the compute-freshness / harmful-write / planner-reflex research portfolio"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+
+# Core stays deliberately light so `uv sync` is fast and Stages 0/1/3 run on CPU
+# without pulling torch. Anything importing torch lives behind the `nn` extra and
+# is imported lazily (see instinct.core.optional).
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.1",
+    "pyarrow>=14.0",
+    "matplotlib>=3.8",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+# Neural work (Stage 2 / P2). CPU wheels locally; Colab already ships CUDA torch.
+nn = [
+    "torch>=2.4",
+    "transformers>=4.44",
+]
+# Optional adapter to the FTTT reference implementation. Declared, not installed
+# here: it needs JAX + Jumanji + pgx and targets A100/H100-class hardware.
+fttt = [
+    "jax>=0.4.30",
+    "jumanji>=1.0",
+    "pgx>=2.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-benchmark>=4.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pandas-stubs",
+    "types-pyyaml",
+    "types-tqdm",
+]
+
+[project.scripts]
+instinct = "instinct.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/instinct"]
+
+# Local torch resolves to CPU wheels: the only GPU we have is a Colab T4, and
+# Colab images ship their own CUDA torch. Downloading a ~2.5GB CUDA wheel into
+# this container would be pure waste.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "NPY"]
+ignore = [
+    "E741",   # ambiguous names: `l` is the standard symbol for an early-exit level
+    "N803",   # argument names follow the papers' notation (P, R, W, Q)
+    "N806",   # ditto for locals
+    "B905",   # zip(strict=) is noisy on known-equal-length numpy axes
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["instinct"]
+mypy_path = "src"
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+# Third-party numerics ship incomplete stubs; we type our own code, not theirs.
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "benchmarks.*"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "slow: excluded from the default run; these are the equivalence sweeps",
+    "needs_torch: requires the `nn` extra",
+    "needs_gpu: requires a CUDA device (Colab T4)",
+]
