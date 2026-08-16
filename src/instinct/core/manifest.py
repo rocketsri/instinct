@@ -19,42 +19,57 @@ sweep that dies at 80% should leave 80% of its rows readable, which rules out
 formats that need a clean close to be parseable.
 
 The compute ledger travels with the manifest. Rule 4's tripwire
-(:func:`instinct.core.compute.budget.assert_matched`) can only be checked against
-what was actually spent, so a run that does not record its spend cannot be
-audited for matched compute later.
+(:func:`instinct.core.compute.budget.assert_matched`) can only be checked
+against what was actually spent, so a run that does not record its spend
+cannot be audited for matched compute later.
+
+This module is :mod:`instinct.core.logging`'s successor. Two changes from that
+version, both driven by spec section 3.3's repository interface: results live
+under ``results/<proposal>/<run_id>/`` rather than ``runs/<experiment>/
+<run_id>/`` (the ``proposal`` parameter names one of the seven fixed proposal
+ids from :mod:`instinct.core.plugin`), and the manifest now carries the three
+fields spec section 3.3 requires that the old version did not — ``device``,
+``seeds``, and ``parent_run`` (set when a run is a resume of another).
 """
 
 from __future__ import annotations
 
 import json
 import platform
+import secrets
 import socket
 import subprocess
 import time
 import traceback
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import UTC, datetime
+from enum import Enum
 from importlib import metadata
 from pathlib import Path
 from typing import Any, TextIO
 
 import pandas as pd
+import yaml
 
-from instinct.core.compute.budget import ComputeLedger
 from instinct.core.cache import to_canonical
+from instinct.core.compute.budget import ComputeLedger
 from instinct.core.config import config_hash
 
 __all__ = [
+    "CONFIG_LOCK_NAME",
+    "MANIFEST_NAME",
     "JsonlWriter",
     "Provenance",
     "RunManifest",
     "RunRecorder",
     "list_runs",
     "load_manifest",
+    "make_run_id",
     "resolve_run",
     "run_context",
+    "write_config_lock",
 ]
 
 #: Packages whose versions actually change results. Kept explicit rather than
@@ -71,6 +86,7 @@ TRACKED_PACKAGES = (
 )
 
 MANIFEST_NAME = "manifest.json"
+CONFIG_LOCK_NAME = "config.lock.yaml"
 
 
 def _git(*args: str) -> str:
@@ -136,7 +152,7 @@ class RunManifest:
     """The record written alongside every run's results."""
 
     run_id: str
-    experiment: str
+    proposal: str
     config_hash: str
     config: Any
     provenance: Provenance
@@ -145,6 +161,9 @@ class RunManifest:
     wall_clock_s: float | None = None
     status: str = "running"  # running | ok | failed
     error: str | None = None
+    device: dict[str, Any] = field(default_factory=dict)
+    seeds: list[int] = field(default_factory=list)
+    parent_run: str | None = None
     summary: dict[str, Any] = field(default_factory=dict)
     compute: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
@@ -152,7 +171,7 @@ class RunManifest:
     def as_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
-            "experiment": self.experiment,
+            "proposal": self.proposal,
             "config_hash": self.config_hash,
             "config": to_canonical(self.config),
             "provenance": to_canonical(self.provenance),
@@ -161,6 +180,9 @@ class RunManifest:
             "wall_clock_s": self.wall_clock_s,
             "status": self.status,
             "error": self.error,
+            "device": to_canonical(self.device),
+            "seeds": list(self.seeds),
+            "parent_run": self.parent_run,
             "summary": to_canonical(self.summary),
             "compute": self.compute,
             "artifacts": self.artifacts,
@@ -184,16 +206,107 @@ def load_manifest(path: str | Path) -> dict[str, Any]:
     return data
 
 
-def make_run_id(experiment: str, cfg_hash: str, when: datetime | None = None) -> str:
-    """A sortable, self-describing run id.
+def manifest_from_dict(data: Mapping[str, Any]) -> RunManifest:
+    """Reconstruct a :class:`RunManifest` from :func:`load_manifest`'s output.
 
-    ``<experiment>-<utc timestamp>-<config hash prefix>``. Timestamp first after
-    the name so lexical order is chronological order; the hash prefix so two runs
-    of the same experiment in the same second are distinguishable and so the
-    directory name already tells you whether two runs used the same config.
+    Used by ``instinct resume`` and ``instinct report`` to rebuild a manifest
+    without re-deriving provenance (a resumed run keeps its *original* start
+    provenance in this object; the resume's own provenance is a separate
+    capture the caller records against ``parent_run``).
+    """
+    prov = data["provenance"]
+    return RunManifest(
+        run_id=str(data["run_id"]),
+        proposal=str(data.get("proposal", data.get("experiment", ""))),
+        config_hash=str(data["config_hash"]),
+        config=data.get("config"),
+        provenance=Provenance(
+            git_sha=str(prov.get("git_sha", "")),
+            git_branch=str(prov.get("git_branch", "")),
+            git_dirty=bool(prov.get("git_dirty", False)),
+            host=str(prov.get("host", "")),
+            platform=str(prov.get("platform", "")),
+            python=str(prov.get("python", "")),
+            dep_versions=dict(prov.get("dep_versions", {})),
+        ),
+        started_at=str(data.get("started_at", "")),
+        finished_at=data.get("finished_at"),
+        wall_clock_s=data.get("wall_clock_s"),
+        status=str(data.get("status", "running")),
+        error=data.get("error"),
+        device=dict(data.get("device", {})),
+        seeds=list(data.get("seeds", [])),
+        parent_run=data.get("parent_run"),
+        summary=dict(data.get("summary", {})),
+        compute=list(data.get("compute", [])),
+        artifacts=list(data.get("artifacts", [])),
+    )
+
+
+def make_run_id(proposal: str, cfg_hash: str, when: datetime | None = None) -> str:
+    """A sortable, self-describing, collision-resistant run id.
+
+    ``<proposal>-<utc timestamp>-<config hash prefix>-<nonce>``. Timestamp
+    first after the name so lexical order is chronological order; the hash
+    prefix so the directory name tells you whether two runs used the same
+    config. The trailing nonce is what actually prevents a collision: two runs
+    of the *same config* started in the same second — a smoke config re-run
+    immediately to check flakiness, or two CI jobs racing — would otherwise
+    share every other component of this id and silently overwrite one
+    another's ``results/<proposal>/<run_id>/`` directory. ``secrets.token_hex``
+    rather than a counter: a counter needs shared state across processes to be
+    collision-free, which is exactly the coordination a run id is supposed to
+    let two independent processes avoid needing.
     """
     stamp = (when or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
-    return f"{experiment or 'run'}-{stamp}-{cfg_hash[:8]}"
+    nonce = secrets.token_hex(3)
+    return f"{proposal or 'run'}-{stamp}-{cfg_hash[:8]}-{nonce}"
+
+
+def _config_to_yaml_safe(obj: Any) -> Any:
+    """Like :func:`instinct.core.cache.to_canonical`, but for round-tripping
+    through :func:`instinct.core.config.from_mapping` rather than for hashing.
+
+    The difference is entirely about :class:`~pathlib.Path`. ``to_canonical``
+    tags a path as ``{"__path__": ...}`` because a cache key must never
+    collide a path with a string that happens to look like one. That same tag
+    is exactly what breaks a *reload*: ``from_mapping`` expects a plain path
+    string for a ``Path``-typed field, and handing it a tagged dict raises
+    "expected a path string, got dict". A config file is meant to be read back
+    by this same loader, so paths here are written as plain strings — the
+    ambiguity ``to_canonical`` guards against does not apply to a field whose
+    declared type already says "this is a path".
+    """
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return {f.name: _config_to_yaml_safe(getattr(obj, f.name)) for f in fields(obj)}
+    if isinstance(obj, Path):
+        return obj.as_posix()
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, Mapping):
+        return {str(k): _config_to_yaml_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list | tuple):
+        return [_config_to_yaml_safe(v) for v in obj]
+    return obj
+
+
+def write_config_lock(path: str | Path, config: Any) -> None:
+    """Write the frozen, resolved config as standalone YAML.
+
+    Distinct from the config embedded in ``manifest.json``: this file exists so
+    a run's exact configuration is diffable and greppable on its own, without
+    parsing JSON or reaching into a nested field. It is written before the run
+    body executes, so a run that dies immediately still leaves behind proof of
+    what it was configured to do. Round-trips through
+    :func:`~instinct.core.config.load_config` — see :func:`_config_to_yaml_safe`
+    for why that means it is *not* built from
+    :func:`~instinct.core.cache.to_canonical`.
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        yaml.safe_dump(_config_to_yaml_safe(config), sort_keys=True, default_flow_style=False)
+    )
 
 
 class JsonlWriter:
@@ -220,9 +333,9 @@ class JsonlWriter:
 
 @dataclass
 class RunRecorder:
-    """Handle handed to an experiment: where to put things, and what to record.
+    """Handle handed to a proposal: where to put things, and what to record.
 
-    The experiment does not choose paths. It asks for a named stream or table and
+    The proposal does not choose paths. It asks for a named stream or table and
     the recorder decides where it lands, which is what keeps every run directory
     the same shape and makes ``instinct report`` possible at all.
     """
@@ -263,11 +376,14 @@ class RunRecorder:
 
 @contextmanager
 def run_context(
-    experiment: str,
+    proposal: str,
     config: Any,
     *,
-    output_root: str | Path = "runs",
+    output_root: str | Path = "results",
     run_id: str | None = None,
+    seeds: Sequence[int] = (),
+    device: Mapping[str, Any] | None = None,
+    parent_run: str | None = None,
 ) -> Iterator[RunRecorder]:
     """Open a run directory, write its manifest, and close it out honestly.
 
@@ -276,18 +392,21 @@ def run_context(
     claims success, which is worse than no manifest at all.
     """
     cfg_hash = config_hash(config)
-    rid = run_id or make_run_id(experiment, cfg_hash)
-    run_dir = Path(output_root) / experiment / rid
+    rid = run_id or make_run_id(proposal, cfg_hash)
+    run_dir = Path(output_root) / proposal / rid
     run_dir.mkdir(parents=True, exist_ok=True)
 
     started = datetime.now(UTC)
     manifest = RunManifest(
         run_id=rid,
-        experiment=experiment,
+        proposal=proposal,
         config_hash=cfg_hash,
         config=config,
         provenance=Provenance.capture(),
         started_at=started.isoformat(timespec="seconds"),
+        device=dict(device or {}),
+        seeds=list(seeds),
+        parent_run=parent_run,
     )
     manifest.write(run_dir / MANIFEST_NAME)
 
@@ -309,7 +428,7 @@ def run_context(
         recorder.close()
 
 
-def list_runs(output_root: str | Path = "runs") -> list[dict[str, Any]]:
+def list_runs(output_root: str | Path = "results") -> list[dict[str, Any]]:
     """Every run under a root, newest first.
 
     Sorted by ``started_at`` rather than by mtime: mtime changes when a manifest
@@ -330,13 +449,17 @@ def list_runs(output_root: str | Path = "runs") -> list[dict[str, Any]]:
     return out
 
 
-def resolve_run(run_id: str, output_root: str | Path = "runs") -> Path:
+def resolve_run(run_id: str, output_root: str | Path = "results") -> Path:
     """Find a run directory from a full or partial run id.
 
     Prefix matching because run ids carry a timestamp and a hash and nobody
     retypes those correctly. An ambiguous prefix raises rather than picking one:
-    reporting on the wrong run is the failure to avoid.
+    reporting on the wrong run is the failure to avoid. ``run_id`` may also be a
+    direct path to a run directory, so callers can pass either interchangeably.
     """
+    direct = Path(run_id)
+    if (direct / MANIFEST_NAME).exists():
+        return direct
     root = Path(output_root)
     candidates = [
         p.parent for p in root.glob(f"*/*/{MANIFEST_NAME}") if p.parent.name.startswith(run_id)

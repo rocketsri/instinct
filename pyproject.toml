@@ -19,6 +19,7 @@ dependencies = [
     "typer>=0.12",
     "rich>=13.0",
     "tqdm>=4.66",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +84,9 @@ ignore = [
 "tests/*" = ["E501"]
 # `import torch.nn.functional as F` is universal convention.
 "benchmarks/*" = ["N812"]
+# typer's whole API is built around calling Option()/Argument() in a default
+# value; that is how the library reads the CLI signature.
+"src/instinct/cli.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"

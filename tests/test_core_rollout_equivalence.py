@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from instinct.core.env import EnvState, Timing
+from instinct.core.envs.tabular import TabularEnv, chase_chain, corridor_with_pit
 from instinct.core.rng import SeedScope
 from instinct.core.rollout import (
     ARMS,
@@ -19,7 +20,6 @@ from instinct.core.rollout import (
     simulate_arm,
     simulate_lanes,
 )
-from instinct.core.envs.tabular import TabularEnv, chase_chain, corridor_with_pit
 
 
 @pytest.fixture
