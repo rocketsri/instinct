@@ -71,12 +71,12 @@ def main() -> None:
         try:
             a = torch.randn(n, n, device=dev, dtype=dtype)
             b = torch.randn(n, n, device=dev, dtype=dtype)
-            sec = timed(lambda: torch.mm(a, b), iters=20)
+            sec = timed(lambda a=a, b=b: torch.mm(a, b), iters=20)
             results[name] = flops / sec / 1e12
             print(f"  {name}: {results[name]:7.2f} TFLOP/s   ({sec * 1e3:.2f} ms)")
             del a, b
             torch.cuda.empty_cache()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"  {name}: FAILED -- {type(exc).__name__}: {exc}")
     if "fp16" in results and "bf16" in results:
         ratio = results["fp16"] / max(results["bf16"], 1e-9)
@@ -96,7 +96,7 @@ def main() -> None:
             with sdpa_kernel(backend):
                 sec = timed(lambda: F.scaled_dot_product_attention(q, k, v), iters=20)
             print(f"  {label:<14}: OK    {sec * 1e3:7.3f} ms")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"  {label:<14}: unavailable -- {type(exc).__name__}")
 
     # -- 3. is the small-kernel regime launch-bound? -----------------------
@@ -107,8 +107,7 @@ def main() -> None:
         w1 = torch.randn(width, 4 * width, device=dev, dtype=torch.float16)
         w2 = torch.randn(4 * width, width, device=dev, dtype=torch.float16)
         x = torch.randn(32, width, device=dev, dtype=torch.float16)
-        step = lambda: (F.silu(x @ w1) @ w2)  # noqa: E731
-        sec = timed(step, iters=200, warmup=50)
+        sec = timed(lambda x=x, w1=w1, w2=w2: F.silu(x @ w1) @ w2, iters=200, warmup=50)
         gflops = 2 * (32 * width * 4 * width + 32 * 4 * width * width) / sec / 1e9
         print(f"  width {width:>4}: {sec * 1e6:8.1f} us   {gflops:8.1f} GFLOP/s")
 
@@ -120,12 +119,16 @@ def main() -> None:
         w1 = torch.randn(n_forks, width, 4 * width, device=dev, dtype=torch.float16)
         w2 = torch.randn(n_forks, 4 * width, width, device=dev, dtype=torch.float16)
         xb = x.unsqueeze(0).expand(n_forks, -1, -1)
-        batched = lambda: torch.bmm(F.silu(torch.bmm(xb, w1)), w2)  # noqa: E731
-        sec_b = timed(batched, iters=100, warmup=20)
-        seq = lambda: [  # noqa: E731
-            F.silu(x @ w1[i]) @ w2[i] for i in range(n_forks)
-        ]
-        sec_s = timed(seq, iters=20, warmup=5)
+        sec_b = timed(
+            lambda xb=xb, w1=w1, w2=w2: torch.bmm(F.silu(torch.bmm(xb, w1)), w2),
+            iters=100,
+            warmup=20,
+        )
+        sec_s = timed(
+            lambda w1=w1, w2=w2, n=n_forks: [F.silu(x @ w1[i]) @ w2[i] for i in range(n)],
+            iters=20,
+            warmup=5,
+        )
         print(f"  {n_forks:>3} forks: batched {sec_b * 1e6:8.1f} us | "
               f"sequential {sec_s * 1e6:9.1f} us | speedup {sec_s / sec_b:6.1f}x")
 
@@ -152,7 +155,7 @@ def main() -> None:
         print(f"  one-off compile cost: {compile_s:.1f} s")
         print("  -> worth the flag" if eager / comp > 1.15 else
               "  -> not worth it at this size; keep eager as the default")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"  compile FAILED -- {type(exc).__name__}: {exc}")
 
     section("done")

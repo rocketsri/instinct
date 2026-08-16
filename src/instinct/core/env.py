@@ -28,7 +28,7 @@ import numpy.typing as npt
 
 from instinct.core.rng import SeedScope
 
-__all__ = ["EnvState", "Timing", "BatchedEnv", "StepResult"]
+__all__ = ["BatchedEnv", "EnvState", "StepResult", "Timing"]
 
 FloatArray = npt.NDArray[np.float64]
 IntArray = npt.NDArray[np.int64]
