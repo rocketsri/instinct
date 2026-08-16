@@ -105,6 +105,7 @@ class TransferResult:
     mean_kendall_tau: float  # 1 is a perfect ordering
     exact_argmax_rate: float  # share of cells whose optimal budget was hit
     within_cell_regret: float  # regret of the best curve fitted ON the test cell
+    target_effect: float = float("nan")  # peak-to-trough of the target frontier
     per_cell: list[float] = field(default_factory=list, repr=False)
 
     @property
@@ -207,11 +208,20 @@ def run_transfer(
     test = target_cells
 
     # The floor: a curve fitted directly on each test cell.
+    # A target whose frontier is flat cannot test anything: every prediction
+    # scores zero regret against a constant, so the transfer "passes"
+    # regardless. Measured on corridor_with_pit, whose effect size is exactly
+    # 0.0000 -- depth-limited lookahead already finds the optimal action at
+    # depth 1 there, so no budget buys anything and the environment contributes
+    # no signal to the atlas at all.
+    target_effect = float(np.median([c.effect_size() for c in test]))
+
     own_fits = fit_cells(family, list(test))
     within = float(np.mean([_score_against(f, c)[0] for f, c in zip(own_fits, test)]))
 
     return TransferResult(
         axis=axis,
+        target_effect=target_effect,
         family=family,
         fit_on=str(source),
         tested_on=str(target),

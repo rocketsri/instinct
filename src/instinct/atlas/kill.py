@@ -99,6 +99,20 @@ def _transfer_verdict(
 
     limit = tolerance * effect_scale
 
+    # A flat target frontier makes the transfer untestable: every prediction
+    # scores zero regret against a constant. Reporting that as PASS is how a
+    # degenerate environment gets counted as evidence the atlas generalizes.
+    if np.isfinite(result.target_effect) and result.target_effect <= limit:
+        return Verdict(
+            name,
+            INCONCLUSIVE,
+            f"{result.summary()}; the target frontier is flat "
+            f"(effect {result.target_effect:.4f} <= {limit:.4f}), so budget buys "
+            "nothing there and no prediction can be wrong",
+            value=result.target_effect,
+            threshold=limit,
+        )
+
     # If a curve fitted directly ON the test cell already mis-ranks that cell's
     # budgets by more than the limit, the family cannot represent this surface
     # and the transfer is untestable with it. Reporting PASS there would let a
