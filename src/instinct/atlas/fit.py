@@ -437,12 +437,42 @@ def select_families(
     for i, cell in enumerate(cells):
         nv = _noise_variance(cell)
         scores = {n: _score_family(n, cell, fits[n][i], holds[i], noise_var=nv) for n in fits}
-        ranked = sorted(scores.values(), key=lambda s: s.test_nll)
+        # Selection charges for parameters. Held-out NLL alone does not: under
+        # the `interleave` holdout a flexible family only has to interpolate
+        # between neighbours it kept, which it can do on pure noise. Measured
+        # before this penalty existed, pwlinear3 cleared the lookup comparison
+        # on independent random values by +0.36 nats/point.
+        #
+        # The charge is AIC's per-observation form, k / n_train, applied to the
+        # held-out score. It is a per-point quantity so it is commensurate with
+        # test_nll, and it is scaled by the training size because that is what
+        # the parameters were spent on.
+        def _penalized(score: FamilyScore) -> float:
+            return score.test_nll + score.n_params / max(score.n_train, 1)
+
+        ranked = sorted(scores.values(), key=_penalized)
         winner, runner_up = ranked[0], ranked[1] if len(ranked) > 1 else ranked[0]
 
         parametric = [s for s in scores.values() if FAMILIES[s.family].parametric]
-        best_par = min(parametric, key=lambda s: s.test_nll)
         lookup = scores[LOOKUP_BASELINE]
+
+        # The lookup comparison stays out-of-sample, and only the parametric
+        # side pays the complexity charge.
+        #
+        # Both sides genuinely predict at held-out points -- LookupFamily falls
+        # back to the nearest trained value -- so the comparison is fair on
+        # footing. What was missing is that the claim being tested is asymmetric:
+        # "a SIMPLE family beats the table". The table is the saturated
+        # non-explanation and is not claiming simplicity, so charging it for its
+        # levels would penalise the baseline for being a baseline. The
+        # parametric family is claiming to have found a compressible shape, so
+        # it pays for every parameter that claim costs.
+        #
+        # An earlier attempt scored this in-sample by BIC. That fails the other
+        # way: a saturated table fits perfectly by construction, so it won
+        # everywhere, including on clean exponential data by 235 nats.
+        best_par = min(parametric, key=_penalized)
+        margin_lookup = float(lookup.test_nll - _penalized(best_par))
 
         out.append(
             CellSelection(
@@ -453,33 +483,10 @@ def select_families(
                 scores=scores,
                 winner=winner.family,
                 runner_up=runner_up.family,
-                margin_runner_up=float(runner_up.test_nll - winner.test_nll),
+                margin_runner_up=float(_penalized(runner_up) - _penalized(winner)),
                 best_parametric=best_par.family,
-                margin_over_lookup=float(lookup.test_nll - best_par.test_nll),
-                # KNOWN DEFECT -- this comparison is not yet a valid kill-condition
-                # test, and tests/test_atlas_fit.py carries the strict xfail.
-                #
-                # Two problems compound. Held-out NLL is the sole criterion, with
-                # no complexity penalty, so nothing charges a family for its
-                # parameters. And under the `interleave` holdout the lookup table
-                # is structurally handicapped: it is asked to predict at
-                # staleness values it never saw, which a saturated per-x table
-                # cannot do by construction, while any smooth family simply
-                # interpolates between the neighbours it retained.
-                #
-                # Together those make `beats_lookup` clearable on pure noise --
-                # measured at +0.36 nats/point for pwlinear3 on independent
-                # random values. Since this comparison *is* P1's "no staleness
-                # law" kill condition, it currently cannot detect the outcome it
-                # exists to detect, and must not be reported as if it could.
-                #
-                # The fix is a design decision, not a tweak: either score
-                # selection on held-out NLL plus an explicit complexity penalty,
-                # or compare against the lookup baseline in-sample by AIC/BIC
-                # where its degrees of freedom are counted honestly. Picking one
-                # without checking it against the known-answer suite would just
-                # move the bias somewhere less visible.
-                beats_lookup=bool(best_par.test_nll < lookup.test_nll),
+                margin_over_lookup=margin_lookup,
+                beats_lookup=bool(margin_lookup > 0.0),
                 discretization=discretization_report(cell),
             )
         )

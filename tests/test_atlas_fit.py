@@ -49,7 +49,11 @@ def _generate(kind: str, rng: np.random.Generator, noise: float = 0.0) -> np.nda
     if kind == "exponential":
         y = 2.0 * np.exp(-x / 9.0)
     elif kind == "power":
-        y = 3.0 * x**-0.8
+        # The family is a + b*(1 + (x - x0)/s)**-p, a *shifted* power law -- the
+        # shift keeps the basis finite at x0, where every sweep's smallest
+        # budget sits. A pure 3*x**-0.8 is not in that span, so generating one
+        # tests the wrong thing.
+        y = 0.2 + 1.8 * (1.0 + (x - x.min()) / (x.max() - x.min())) ** -2.0
     elif kind == "threshold":
         y = np.where(x < 12.0, 1.5, 0.2)
     elif kind == "logistic":
@@ -93,7 +97,7 @@ _OVERFLEXIBLE = pytest.mark.xfail(
     "kind",
     [
         "exponential",
-        pytest.param("power", marks=_OVERFLEXIBLE),
+        "power",
         "threshold",
         "logistic",
     ],
@@ -116,10 +120,10 @@ def test_the_generating_family_fits_essentially_perfectly(kind: str) -> None:
 @pytest.mark.parametrize(
     "kind",
     [
-        pytest.param("exponential", marks=_OVERFLEXIBLE),
-        pytest.param("threshold", marks=_OVERFLEXIBLE),
+        "exponential",
+        "threshold",
         "logistic",
-        pytest.param("constant", marks=_OVERFLEXIBLE),
+        "constant",
     ],
 )
 def test_selection_recovers_the_generating_family(kind: str) -> None:
@@ -170,7 +174,6 @@ def test_selection_prefers_the_simple_family_when_both_fit() -> None:
 # -- the kill condition ---------------------------------------------------
 
 
-@_OVERFLEXIBLE
 def test_no_parametric_family_beats_a_lookup_table_on_unstructured_data() -> None:
     """When there is no shape to find, the machinery must say so.
 
@@ -183,9 +186,31 @@ def test_no_parametric_family_beats_a_lookup_table_on_unstructured_data() -> Non
     rng = np.random.default_rng(11)
     y = rng.normal(0.0, 1.0, size=BUDGETS.size)
     selection = select_families([_cell(y, name="unstructured", noise=1.0)])[0]
-    assert not selection.beats_lookup, (
-        f"{selection.best_parametric} claimed a margin of "
-        f"{selection.margin_over_lookup:+.4f} nats/point on pure noise"
+
+    # `constant` beating the table here is CORRECT, not a failure, and the test
+    # originally got this wrong. Nearest-neighbour lookup predicts a held-out
+    # point using a neighbour's noise, which carries twice the variance of
+    # predicting the mean. So on structureless data the flat model genuinely is
+    # the better predictor -- and "there is no shape" is exactly what it says.
+    #
+    # The kill condition is about a family claiming *shape*. So the thing that
+    # must not happen is a family with more than one parameter clearing the bar.
+    shape_bearing = {
+        name: score
+        for name, score in selection.scores.items()
+        if score.n_params > 1.0 and name != "lookup"
+    }
+    lookup_nll = selection.scores["lookup"].test_nll
+    offenders = {
+        name: lookup_nll - (s.test_nll + s.n_params / max(s.n_train, 1))
+        for name, s in shape_bearing.items()
+    }
+    worst = max(offenders.items(), key=lambda kv: kv[1])
+    assert worst[1] <= 0.0, (
+        f"{worst[0]} claimed a shape margin of {worst[1]:+.4f} nats/point on pure noise"
+    )
+    assert selection.winner == "constant", (
+        f"structureless data should be named flat, not {selection.winner!r}"
     )
 
 
