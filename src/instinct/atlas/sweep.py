@@ -33,10 +33,10 @@ import pandas as pd
 
 from instinct.atlas.curves import cells_from_frame
 from instinct.atlas.decomposition import exact_atlas_rows
-from instinct.atlas.fit import select_families, taxonomy
-from instinct.atlas.kill import evaluate_kill_conditions, render_markdown
+from instinct.atlas.fit import CellSelection, select_families, taxonomy
+from instinct.atlas.kill import KillReport, evaluate_kill_conditions, render_markdown
 from instinct.atlas.schema import to_frame, validate_frame
-from instinct.atlas.transfer import transfer_suite
+from instinct.atlas.transfer import TransferResult, transfer_suite
 from instinct.core.env import Timing
 from instinct.core.mdp import TabularMDP
 from instinct.envs.tabular import chase_chain, corridor_with_pit
@@ -89,9 +89,9 @@ class SweepConfig:
 @dataclass(slots=True)
 class SweepResult:
     frame: pd.DataFrame
-    selections: list = field(default_factory=list)
-    transfers: dict = field(default_factory=dict)
-    report: object = None
+    selections: list[CellSelection] = field(default_factory=list)
+    transfers: dict[str, TransferResult | None] = field(default_factory=dict)
+    report: KillReport | None = None
     wall_clock_s: float = 0.0
 
 
@@ -143,7 +143,7 @@ def run_sweep(
     )
 
 
-def _regime_table(selections: Sequence) -> str:
+def _regime_table(selections: Sequence[CellSelection]) -> str:
     counts: dict[str, int] = {}
     for sel in selections:
         counts[sel.regime] = counts.get(sel.regime, 0) + 1
@@ -154,7 +154,7 @@ def _regime_table(selections: Sequence) -> str:
     return "\n".join(lines)
 
 
-def _transfer_table(transfers: dict) -> str:
+def _transfer_table(transfers: dict[str, TransferResult | None]) -> str:
     lines = [
         "| Transfer | Budget regret | Excess | Kendall tau | Argmax hit |",
         "| --- | --- | --- | --- | --- |",
@@ -177,6 +177,8 @@ def write_report(result: SweepResult, path: str | Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     df = result.frame
 
+    if result.report is None:
+        raise ValueError("sweep result has no kill report; run_sweep did not complete")
     body = [
         render_markdown(result.report),
         "",
@@ -203,10 +205,10 @@ def write_report(result: SweepResult, path: str | Path) -> Path:
         "| Term | Mean | Note |",
         "| --- | --- | --- |",
         f"| G_plan | {df['G_plan'].mean():+.4f} | benefit of the better decision |",
-        f"| R_intermediate | {df['R_intermediate'].mean():+.4f} | banked by the reflex while waiting |",
+        f"| R_intermediate | {df['R_intermediate'].mean():+.4f} | banked by the reflex |",
         f"| L_arrival | {df['L_arrival'].mean():+.4f} | arrival regret: the decision went stale |",
         f"| L_wait | {df['L_wait'].mean():+.4f} | whole cost of waiting, incl. discounting |",
-        f"| L_irreversible | {df['L_irreversible'].mean():+.4f} | the part no later planning recovers |",
+        f"| L_irreversible | {df['L_irreversible'].mean():+.4f} | what planning cannot undo |",
         f"| sigma | {df['sigma'].mean():+.4f} | net gain over the base budget |",
         "",
         "`L_irreversible` by environment, which is the term that should separate "

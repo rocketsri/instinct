@@ -17,7 +17,7 @@ A tripped condition is a result. The remaining figures describe a surface that f
 ## What was measured
 
 - 2592 cells: 2 environments x 2 reflexes x 3 speeds x 3 latencies x 12 budgets x 10 start states
-- Exact closed-form solves, no sampling. Wall clock 18.2s.
+- Exact closed-form solves, no sampling. Wall clock 17.8s.
 - Worst |eps_cross - L_base_delay| residual: identity holds to 7.38 in identified terms.
 
 ## Regime taxonomy
@@ -44,10 +44,10 @@ A tripped condition is a result. The remaining figures describe a surface that f
 | Term | Mean | Note |
 | --- | --- | --- |
 | G_plan | +0.0644 | benefit of the better decision |
-| R_intermediate | +1.1929 | banked by the reflex while waiting |
+| R_intermediate | +1.1929 | banked by the reflex |
 | L_arrival | +0.5369 | arrival regret: the decision went stale |
 | L_wait | +2.6347 | whole cost of waiting, incl. discounting |
-| L_irreversible | +0.0014 | the part no later planning recovers |
+| L_irreversible | +0.0014 | what planning cannot undo |
 | sigma | -1.1417 | net gain over the base budget |
 
 `L_irreversible` by environment, which is the term that should separate an absorbing environment from a recoverable one:
