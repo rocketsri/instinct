@@ -29,7 +29,7 @@ A note on pairing. :mod:`instinct.core.stats` pairs by default because arms
 share seeds. That does not apply here: logged records are one draw each from the
 behaviour policy, and there is no counterfactual twin to pair with — that is the
 entire reason weighting is needed. Where a twin *does* exist, because the audit
-forked the simulator (:mod:`instinct.audit.counterfactual`), use the paired
+forked the simulator (:mod:`instinct.core.audit.counterfactual`), use the paired
 estimators instead. They are strictly better and it is not close.
 """
 

@@ -1,13 +1,13 @@
 """Two integer-state arcade games: the threshold end of the atlas.
 
-:mod:`instinct.envs.gridworld` is the environment where a stale plan degrades a
+:mod:`instinct.core.envs.gridworld` is the environment where a stale plan degrades a
 little more each tick. These two are the opposite shape, and P1's taxonomy is
 only worth reporting if both shapes are present and measured rather than
 assumed. In :class:`SnakeLite` a plan that is one tick out of date is usually
 free and occasionally fatal; in :class:`TetrisLite` a misplaced piece costs
 nothing at all until the stack reaches the ceiling. Both absorb on failure, so
 ``L_irreversible`` is genuinely non-zero and separable from ``L_arrival`` — the
-same reason :func:`~instinct.envs.tabular.corridor_with_pit` has a pit.
+same reason :func:`~instinct.core.envs.tabular.corridor_with_pit` has a pit.
 
 State representations
 ---------------------

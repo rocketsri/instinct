@@ -6,13 +6,13 @@ programs contain a gate — spend more compute or don't, accept a fast-weight
 write or don't — and every one of them needs the same three things to be
 evaluated honestly:
 
-* :mod:`instinct.audit.counterfactual` — fork the state, take the declined
+* :mod:`instinct.core.audit.counterfactual` — fork the state, take the declined
   action anyway under identical randomness, roll back. What *would* have
   happened.
-* :mod:`instinct.audit.propensity` — score a trigger against a log collected
+* :mod:`instinct.core.audit.propensity` — score a trigger against a log collected
   under a different one, with the effective sample size printed next to every
   estimate.
-* :mod:`instinct.audit.blindspot` — find the regions the trigger keeps declining
+* :mod:`instinct.core.audit.blindspot` — find the regions the trigger keeps declining
   where no audit ever looked, and which therefore cannot have falsified it.
 
 None of these is new (Horvitz-Thompson weighting is from 1952; the
@@ -28,14 +28,14 @@ selected. Reporting that is a result; not noticing it is a retraction.
 
 from __future__ import annotations
 
-from instinct.audit.blindspot import (
+from instinct.core.audit.blindspot import (
     BlindspotReport,
     CellCoverage,
     detect_blindspots,
     nearest_audit_distance,
     quantile_cells,
 )
-from instinct.audit.counterfactual import (
+from instinct.core.audit.counterfactual import (
     CounterfactualError,
     assert_unchanged,
     branch_actions,
@@ -44,7 +44,7 @@ from instinct.audit.counterfactual import (
     rollback_on_exit,
     states_equal,
 )
-from instinct.audit.propensity import (
+from instinct.core.audit.propensity import (
     OffPolicyEstimate,
     PropensityError,
     doubly_robust,

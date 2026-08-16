@@ -19,7 +19,7 @@ sweep that dies at 80% should leave 80% of its rows readable, which rules out
 formats that need a clean close to be parseable.
 
 The compute ledger travels with the manifest. Rule 4's tripwire
-(:func:`instinct.compute.budget.assert_matched`) can only be checked against
+(:func:`instinct.core.compute.budget.assert_matched`) can only be checked against
 what was actually spent, so a run that does not record its spend cannot be
 audited for matched compute later.
 """
@@ -42,7 +42,7 @@ from typing import Any, TextIO
 
 import pandas as pd
 
-from instinct.compute.budget import ComputeLedger
+from instinct.core.compute.budget import ComputeLedger
 from instinct.core.cache import to_canonical
 from instinct.core.config import config_hash
 

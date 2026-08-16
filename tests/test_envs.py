@@ -20,8 +20,8 @@ import pytest
 
 from instinct.core.env import BatchedEnv, EnvState
 from instinct.core.rng import SeedScope
-from instinct.envs.arcade import SnakeLite, TetrisLite
-from instinct.envs.gridworld import GridPursuit, open_field, pillar_field
+from instinct.core.envs.arcade import SnakeLite, TetrisLite
+from instinct.core.envs.gridworld import GridPursuit, open_field, pillar_field
 
 SCOPE = SeedScope(root_seed=20240816).child("test_envs")
 

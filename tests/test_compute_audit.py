@@ -15,20 +15,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from instinct.audit.blindspot import (
+from instinct.core.audit.blindspot import (
     _nearest_audit_distance_naive,
     detect_blindspots,
     nearest_audit_distance,
     quantile_cells,
 )
-from instinct.audit.counterfactual import (
+from instinct.core.audit.counterfactual import (
     CounterfactualError,
     assert_unchanged,
     fork,
     fork_scope,
     states_equal,
 )
-from instinct.audit.propensity import (
+from instinct.core.audit.propensity import (
     PropensityError,
     _doubly_robust_naive,
     _ips_naive,
@@ -38,7 +38,7 @@ from instinct.audit.propensity import (
     ips,
     self_normalized_ips,
 )
-from instinct.compute.budget import (
+from instinct.core.compute.budget import (
     ComputeLedger,
     ComputeMismatchError,
     _extremes,

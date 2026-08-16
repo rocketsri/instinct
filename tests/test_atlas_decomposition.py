@@ -14,7 +14,7 @@ import pytest
 from instinct.atlas.decomposition import decompose_exact, exact_atlas_rows
 from instinct.atlas.schema import DECOMPOSITION_TERMS, to_frame, validate_frame
 from instinct.core.env import Timing
-from instinct.envs.tabular import chase_chain, corridor_with_pit
+from instinct.core.envs.tabular import chase_chain, corridor_with_pit
 
 
 @pytest.fixture

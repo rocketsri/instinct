@@ -19,7 +19,7 @@ from instinct.core.rollout import (
     simulate_arm,
     simulate_lanes,
 )
-from instinct.envs.tabular import TabularEnv, chase_chain, corridor_with_pit
+from instinct.core.envs.tabular import TabularEnv, chase_chain, corridor_with_pit
 
 
 @pytest.fixture
