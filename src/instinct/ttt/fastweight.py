@@ -82,7 +82,13 @@ class FastWeightConfig:
     d_hidden: int
     d_out: int
     lr: float = 0.5
-    normalize_update: bool = False
+    # True by default, and that default is load-bearing. With unnormalized
+    # updates the write_all reference trajectory diverges: measured on the
+    # drifting-regression stream at lr=0.4 the primary-task loss reached 6.5e2
+    # by step 8, 1e300 by step 11 and NaN by step 12. The oracle still returned
+    # numbers -- plausible-looking, finite-until-they-weren't, and completely
+    # meaningless. Normalizing the update keeps the reference roll bounded.
+    normalize_update: bool = True
     dtype: torch.dtype = torch.float64
     device: str = "cpu"
     use_compile: bool = False
@@ -283,11 +289,33 @@ class FastWeights:
             self.w1.add_(delta.dw1)
             self.w2.add_(delta.dw2)
             self.w3.add_(delta.dw3)
+            self._assert_finite()
             return
         m = mask.to(dtype=self.w1.dtype).reshape(-1, 1, 1)
         self.w1.add_(delta.dw1 * m)
         self.w2.add_(delta.dw2 * m)
         self.w3.add_(delta.dw3 * m)
+        self._assert_finite()
+
+    def _assert_finite(self) -> None:
+        """Refuse to carry a diverged memory forward.
+
+        A diverged fast-weight state does not announce itself. It keeps
+        returning finite numbers for a while, then infinities, then NaNs, and an
+        oracle scoring it produces a full table of plausible utilities that mean
+        nothing at all. This turns that into an immediate, loud failure instead
+        of a silent one, because the alternative is discovering it only when a
+        downstream AUC comes out below chance and being unable to tell whether
+        the hypothesis or the arithmetic was wrong.
+        """
+        for name, w in (("w1", self.w1), ("w2", self.w2), ("w3", self.w3)):
+            if not bool(torch.isfinite(w).all()):
+                raise FloatingPointError(
+                    f"fast-weight {name} left the finite range after a write. "
+                    "The reference trajectory has diverged, so every utility "
+                    "computed from this point on is meaningless. Lower `lr` or "
+                    "set `normalize_update=True`."
+                )
 
     # -- forward -----------------------------------------------------------
 
