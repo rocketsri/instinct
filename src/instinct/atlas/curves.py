@@ -1056,6 +1056,28 @@ def _group_key(x: FloatArray) -> bytes:
     return np.round(x, 12).tobytes()
 
 
+# The batched nonlinear path is BROKEN and routed around.
+#
+# `SeparableFamily.fit_batch` returns the *same* fit for every column: fitting
+# five cells with visibly different shapes (exponential, threshold, logistic,
+# power, constant) yields five identical curves, each disagreeing with its own
+# data by up to 75% of the effect size, while the one-at-a-time path reproduces
+# each cell exactly. The nonlinear parameter is evidently being shared across
+# columns instead of estimated per column.
+#
+# This is disabled rather than merely reported because of what it would do
+# downstream. A sweep fitted through this path assigns one curve shape to the
+# entire grid -- which reads as a clean universal collapse of the
+# compute-freshness surface, the single most attractive and most wrong
+# conclusion P1 could reach. A wrong answer that looks like a discovery is worse
+# than no answer, so correctness wins over the fitting-stage speedup, which is
+# not on any critical path yet.
+#
+# Flip to False once fit_batch estimates per-column parameters and
+# test_batched_fitting_matches_per_cell_fitting passes with it enabled.
+_BATCHED_FITTING_DISABLED = True
+
+
 def fit_cells(
     name: str,
     cells: Sequence[CurveData],
@@ -1074,7 +1096,7 @@ def fit_cells(
     fam = family(name)
     if not cells:
         return []
-    if not batched:
+    if not batched or _BATCHED_FITTING_DISABLED:
         return [fam.fit_one(c.x, c.y, weights=c.weight) for c in cells]
 
     groups: dict[bytes, list[int]] = {}
