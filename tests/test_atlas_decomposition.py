@@ -74,7 +74,7 @@ def test_residual_is_a_real_leftover_not_a_definition(chase) -> None:
     d = decompose_exact(mdp, reflex=reflex, budget=8, timing=Timing(nu_e=1.0, nu_h=1.0))
     tampered = d.G_plan + 1.0
     explained = (
-        tampered + d.R_intermediate - d.L_arrival - d.L_irreversible - d.C_hw
+        tampered + d.R_intermediate - d.L_arrival - d.L_wait - d.C_hw
     )
     assert not np.allclose(explained, d.sigma), "the identity should not survive tampering"
 
@@ -97,7 +97,7 @@ def test_schema_frame_validates(chase) -> None:
 def test_base_budget_against_itself_yields_zero_net_gain(chase) -> None:
     """Comparing the base budget against itself: no gain, and no differences.
 
-    ``L_arrival`` and ``L_irreversible`` do NOT vanish here, and should not: the
+    ``L_arrival`` and ``L_wait`` do NOT vanish here, and should not: the
     base arm still pays its own delay. What must vanish is the net ``sigma`` and
     every term defined as a difference between the two budgets.
     """
@@ -108,7 +108,7 @@ def test_base_budget_against_itself_yields_zero_net_gain(chase) -> None:
     assert np.allclose(d.sigma, 0.0, atol=1e-12)
     assert np.allclose(d.G_plan, 0.0, atol=1e-12)
     assert np.allclose(d.R_intermediate, 0.0, atol=1e-12)
-    assert np.allclose(d.L_unrecoverable, 0.0, atol=1e-12)
+    assert np.allclose(d.L_irreversible, 0.0, atol=1e-12)
 
 
 def test_zero_speed_kills_every_temporal_term(chase) -> None:
@@ -120,8 +120,8 @@ def test_zero_speed_kills_every_temporal_term(chase) -> None:
     mdp, reflex = chase
     d = decompose_exact(mdp, reflex=reflex, budget=16, timing=Timing(nu_e=0.0, nu_h=1.0))
     assert np.allclose(d.L_arrival, 0.0, atol=1e-12)
+    assert np.allclose(d.L_wait, 0.0, atol=1e-12)
     assert np.allclose(d.L_irreversible, 0.0, atol=1e-12)
-    assert np.allclose(d.L_unrecoverable, 0.0, atol=1e-12)
     assert np.allclose(d.R_intermediate, 0.0, atol=1e-12)
     assert np.allclose(d.sigma, d.G_plan, atol=1e-12)
 
@@ -141,7 +141,8 @@ def test_irreversible_term_separates_the_two_environments(chase, pit) -> None:
     """The term must fire where damage is unrecoverable and stay quiet where it is not.
 
     ``chase_chain`` has no absorbing states, so nothing done during a delay is
-    permanent and ``L_irreversible`` should be negligible. ``corridor_with_pit``
+    permanent and ``L_irreversible`` should be negligible -- while ``L_wait`` is
+    large in both, since discounting alone guarantees it. ``corridor_with_pit``
     has an absorbing pit, so waiting while advancing genuinely destroys value.
     If this test ever fails, the term is measuring "being behind" rather than
     "being unable to catch up", and the decomposition is confounded.
@@ -154,26 +155,26 @@ def test_irreversible_term_separates_the_two_environments(chase, pit) -> None:
     unrecoverable = decompose_exact(pit_mdp, reflex=pit_reflex, budget=8, timing=timing)
 
     # Both pay a large cost for waiting -- discounting alone guarantees that --
-    # so L_irreversible is big in both and cannot tell them apart.
-    assert float(recoverable.L_irreversible.max()) > 0.5
-    assert float(unrecoverable.L_irreversible.max()) > 0.5
+    # so L_wait is big in both and cannot tell them apart.
+    assert float(recoverable.L_wait.max()) > 0.5
+    assert float(unrecoverable.L_wait.max()) > 0.5
 
-    # L_unrecoverable is the term that must discriminate, and the signature is
+    # L_irreversible is the term that must discriminate, and the signature is
     # its *sign structure*, not its magnitude. Where everything is recoverable,
     # waiting merely shifts you to a different phase of the chase: sometimes
     # better, sometimes worse, averaging to nothing. Where a pit absorbs, waiting
     # can only cost you, so the term is one-signed.
-    assert float(np.abs(recoverable.L_unrecoverable.mean())) < 0.02, (
+    assert float(np.abs(recoverable.L_irreversible.mean())) < 0.02, (
         "with no absorbing states, waiting should cost nothing on average"
     )
-    assert float(recoverable.L_unrecoverable.min()) < -0.05, (
+    assert float(recoverable.L_irreversible.min()) < -0.05, (
         "and it should sometimes help, which is what makes it recoverable"
     )
 
-    assert float(unrecoverable.L_unrecoverable.min()) >= -1e-9, (
+    assert float(unrecoverable.L_irreversible.min()) >= -1e-9, (
         "with an absorbing pit, waiting can never leave you better off"
     )
-    assert float(unrecoverable.L_unrecoverable.mean()) > 0.1, (
+    assert float(unrecoverable.L_irreversible.mean()) > 0.1, (
         "an absorbing pit must register a systematic unrecoverable loss"
     )
 

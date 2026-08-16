@@ -22,7 +22,7 @@ attributes it to four separately measured causes:
     saw the state its answer would be applied in. This is arrival regret in
     return units, and it is the quantity the deleted action-gap ratio was a poor
     proxy for.
-``L_irreversible``
+``L_wait``
     the rest of what the wait cost, over and above what the reflex earned back.
 
 The terms form a **telescoping chain** between adjacent counterfactual arms,
@@ -33,29 +33,27 @@ so they sum exactly rather than approximately, and ``eps_cross`` collapses to a
 single identified quantity: the base arm's own delay cost, which is exactly zero
 whenever the base budget is cheap enough to land immediately.
 
-A correction worth recording, because the first version of this module got it
-wrong. Those five terms were originally measured independently, and nothing then
-forced them to add up — the residual came out around 4.9 return units on a scale
-where the whole budget effect is a fraction of that. The residual was not noise.
-It was absorbing a large real effect with no name: the plain **discounting** cost
-of waiting. Everything after a delay of ``d`` ticks is worth ``gamma**d`` times
-what it would have been, whether or not anything unrecoverable happened.
+A correction to the proposal, found empirically. Its five terms were originally
+measured independently here, and nothing forced them to add up -- the residual
+came out around 4.9 return units on a scale where the whole budget effect is a
+fraction of that. The residual was not noise. It was absorbing a large real
+effect the proposal has no name for: the plain **discounting** cost of waiting.
+Everything after a delay of ``d`` ticks is worth ``gamma**d`` times what it
+would have been, whether or not anything unrecoverable happened.
 
-So ``L_irreversible`` here means *the whole cost of having waited, net of reflex
-earnings*, which mixes discounting with genuinely unrecoverable damage. Those are
-different things and P1 needs them apart, so the unrecoverable part is measured
-separately as
+``L_wait`` therefore carries the whole cost of having waited, mixing discounting
+with genuinely unrecoverable damage. Those are different things and P1 needs
+them apart, so the proposal's actual quantity is measured separately as
 
-``L_unrecoverable``
-    the gap that survives when both arms are handed an *optimal, instantaneous*
+``L_irreversible``
+    the gap surviving when both arms are handed an *optimal, instantaneous*
     future from the handoff state onward. Damage that outlives unlimited future
-    planning is unrecoverable by definition; the remainder,
-    ``L_irreversible - L_unrecoverable``, is the recoverable opportunity cost of
-    the delay.
+    planning is unrecoverable by definition; ``L_wait - L_irreversible`` is the
+    recoverable opportunity cost of the delay.
 
-``L_unrecoverable`` sits outside the identity on purpose. It is a measurement of
+``L_irreversible`` sits outside the identity on purpose. It is a measurement of
 a sub-component, not a fifth way to make the books balance, and it is the term
-that should distinguish an environment with absorbing failures from one without.
+that distinguishes an environment with absorbing failures from one without.
 
 Nothing here fits a curve or assumes a functional form. This module measures;
 ``atlas/fit.py`` and ``atlas/transfer.py`` decide whether the measurements have
@@ -98,13 +96,14 @@ class Decomposition:
     G_plan: FloatArray
     R_intermediate: FloatArray
     L_arrival: FloatArray
-    L_irreversible: FloatArray
+    L_wait: FloatArray
     C_hw: FloatArray
     eps_cross: FloatArray
     sigma: FloatArray
-    # Outside the identity: the part of L_irreversible that no future planning
-    # could have recovered. The remainder is discounting and opportunity cost.
-    L_unrecoverable: FloatArray
+    # Outside the identity, and the proposal's actual L_irreversible: the part
+    # of L_wait that no future planning could have recovered. The remainder is
+    # discounting and opportunity cost.
+    L_irreversible: FloatArray
     # The one quantity eps_cross collapses to: what the *base* arm loses to its
     # own delay. Exposed so the residual is an identified term rather than a
     # bucket, and so a test can assert eps_cross is nothing else.
@@ -115,7 +114,7 @@ class Decomposition:
 
     def recoverable_share(self) -> FloatArray:
         """How much of the wait's cost later planning could in principle undo."""
-        return self.L_irreversible - self.L_unrecoverable
+        return self.L_wait - self.L_irreversible
 
 
 def _reflex_reward(mdp: TabularMDP, reflex: IntArray, delay: int) -> FloatArray:
@@ -206,7 +205,7 @@ def decompose_exact(
     # The whole cost of having waited, net of what the reflex earned back. This
     # bundles discounting with unrecoverable damage; L_unrecoverable below
     # separates them.
-    L_irreversible = R_intermediate - (J_fresh - J_instant)
+    L_wait = R_intermediate - (J_fresh - J_instant)
     C_hw = np.full(
         mdp.n_states, cost_per_simulation * float(budget - base_budget), dtype=np.float64
     )
@@ -216,14 +215,14 @@ def decompose_exact(
     # handoff onward. What planning cannot undo is what "irreversible" should
     # mean, and in an environment with no absorbing states this must be ~0 even
     # though L_irreversible is large.
-    L_unrecoverable = _optimal_handoff(mdp, reflex, base_delay, V_star) - _optimal_handoff(
+    L_irreversible = _optimal_handoff(mdp, reflex, base_delay, V_star) - _optimal_handoff(
         mdp, reflex, delay, V_star
     )
 
     L_base_delay = J_instant_base - J_base
 
     sigma = (J_actual - C_hw) - J_base
-    explained = G_plan + R_intermediate - L_arrival - L_irreversible - C_hw
+    explained = G_plan + R_intermediate - L_arrival - L_wait - C_hw
     # The one thing the chain leaves over: the base arm's own delay cost. Exactly
     # zero whenever the base budget lands immediately.
     eps_cross = sigma - explained
@@ -238,11 +237,11 @@ def decompose_exact(
         G_plan=G_plan,
         R_intermediate=R_intermediate,
         L_arrival=L_arrival,
-        L_irreversible=L_irreversible,
+        L_wait=L_wait,
         C_hw=C_hw,
         eps_cross=eps_cross,
         sigma=sigma,
-        L_unrecoverable=L_unrecoverable,
+        L_irreversible=L_irreversible,
         L_base_delay=L_base_delay,
     )
 
@@ -302,6 +301,7 @@ def exact_atlas_rows(
                     G_plan=float(d.G_plan[s]),
                     R_intermediate=float(d.R_intermediate[s]),
                     L_arrival=float(d.L_arrival[s]),
+                    L_wait=float(d.L_wait[s]),
                     L_irreversible=float(d.L_irreversible[s]),
                     C_hw=float(d.C_hw[s]),
                     eps_cross=float(d.eps_cross[s]),

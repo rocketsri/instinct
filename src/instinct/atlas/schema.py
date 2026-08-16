@@ -11,7 +11,7 @@ measured shows up as a schema change rather than as a silently misread column.
 
 The invariant that matters is the telescoping identity
 
-    sigma == G_plan + R_intermediate - L_arrival - L_irreversible - C_hw + eps_cross
+    sigma == G_plan + R_intermediate - L_arrival - L_wait - C_hw + eps_cross
 
 which holds *by construction* because the terms are a telescoping chain over
 adjacent counterfactual arms, not five independent measurements that happen to
@@ -22,16 +22,26 @@ cell it additionally carries estimation noise, and a cell where it grows
 comparable to the budget effect is a cell whose decomposition cannot be trusted —
 one of P1's stated kill conditions. :func:`validate_frame` is not optional.
 
-One column deserves a warning, because its name is easy to misread.
-``L_irreversible`` is *the whole cost of having waited, net of what the reflex
-earned back*, which bundles plain discounting together with genuinely
-unrecoverable damage. Waiting always costs something under a discount factor,
-absorbing states or not. The unrecoverable part is measured separately by
-``Decomposition.L_unrecoverable`` in ``atlas/decomposition.py`` and deliberately
-sits outside this identity. Do not read ``L_irreversible`` as "damage that could
-not be undone" — it is not, and an earlier version of the estimator conflated the
-two and reported ~4.9 units of irreversible damage in an environment with no
-absorbing states at all.
+A correction to the proposal's decomposition is baked into these names, and it
+is a finding rather than a bookkeeping choice.
+
+The proposal lists five terms and defines ``L_irreversible`` as "damage that
+occurred while no slow intervention was available". Those five do not close: an
+implementation measuring exactly them leaves a residual of ~4.9 return units, on
+a scale where the whole budget effect is a fraction of that. The missing
+quantity is the plain **discounting** cost of waiting. Everything after a delay
+of ``d`` ticks is worth ``gamma**d`` of what it would have been, whether or not
+anything unrecoverable happened, and no listed term carries it.
+
+So the identity here uses ``L_wait`` -- the entire cost of having waited, net of
+what the reflex earned back -- while ``L_irreversible`` keeps the proposal's
+meaning as a separately measured sub-component sitting *outside* the identity:
+the damage surviving when both arms are handed an optimal, zero-latency future
+from the handoff onward. ``L_wait - L_irreversible`` is the recoverable
+opportunity cost.
+
+Reading ``L_wait`` as unrecoverable damage is the mistake to avoid. It is large
+in every environment, including ones with no absorbing states at all.
 """
 
 from __future__ import annotations
@@ -47,7 +57,7 @@ DECOMPOSITION_TERMS: dict[str, int] = {
     "G_plan": +1,
     "R_intermediate": +1,
     "L_arrival": -1,
-    "L_irreversible": -1,
+    "L_wait": -1,
     "C_hw": -1,
     "eps_cross": +1,
 }
@@ -77,7 +87,8 @@ class AtlasRow:
     G_plan: float
     R_intermediate: float
     L_arrival: float
-    L_irreversible: float
+    L_wait: float  # whole cost of waiting, net of reflex earnings
+    L_irreversible: float  # the part no later planning could recover
     C_hw: float
     eps_cross: float
     sigma: float
