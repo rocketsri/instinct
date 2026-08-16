@@ -456,6 +456,29 @@ def select_families(
                 margin_runner_up=float(runner_up.test_nll - winner.test_nll),
                 best_parametric=best_par.family,
                 margin_over_lookup=float(lookup.test_nll - best_par.test_nll),
+                # KNOWN DEFECT -- this comparison is not yet a valid kill-condition
+                # test, and tests/test_atlas_fit.py carries the strict xfail.
+                #
+                # Two problems compound. Held-out NLL is the sole criterion, with
+                # no complexity penalty, so nothing charges a family for its
+                # parameters. And under the `interleave` holdout the lookup table
+                # is structurally handicapped: it is asked to predict at
+                # staleness values it never saw, which a saturated per-x table
+                # cannot do by construction, while any smooth family simply
+                # interpolates between the neighbours it retained.
+                #
+                # Together those make `beats_lookup` clearable on pure noise --
+                # measured at +0.36 nats/point for pwlinear3 on independent
+                # random values. Since this comparison *is* P1's "no staleness
+                # law" kill condition, it currently cannot detect the outcome it
+                # exists to detect, and must not be reported as if it could.
+                #
+                # The fix is a design decision, not a tweak: either score
+                # selection on held-out NLL plus an explicit complexity penalty,
+                # or compare against the lookup baseline in-sample by AIC/BIC
+                # where its degrees of freedom are counted honestly. Picking one
+                # without checking it against the known-answer suite would just
+                # move the bias somewhere less visible.
                 beats_lookup=bool(best_par.test_nll < lookup.test_nll),
                 discretization=discretization_report(cell),
             )
