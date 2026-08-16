@@ -16,7 +16,7 @@ The list spans genuinely different mechanisms:
 ``power``               heavy-tailed decay: no characteristic timescale.
 ``threshold``           a discontinuous step: the plan is fine until it isn't.
 ``hinge``               flat, then linear: a deadline with graceful decay.
-``pwlinear2/3``         one or two knots: piecewise regimes with slopes.
+``pwlinear2``/``3``     one or two knots: piecewise regimes with slopes.
 ``logistic``            a smooth threshold with a finite transition width.
 ``isotonic``            monotone but otherwise unconstrained (nonparametric).
 ``gp``                  smooth but otherwise unconstrained (kernel ridge).
@@ -35,16 +35,19 @@ Every family here except ``isotonic`` and ``gp`` is *linear in its coefficients
 given its nonlinear parameters* (a knot location, a decay rate). That structure
 is what makes the batched path worthwhile: for one candidate nonlinear parameter
 the design matrix depends only on ``x``, and all cells that share a budget grid
-share that matrix. So a whole grid of cells is one :func:`numpy.linalg.lstsq`
-with many right-hand sides per candidate, instead of one solve per cell per
-candidate. :func:`fit_cells` does the grouping; ``batched=False`` runs the same
-fits one cell at a time and exists so the equivalence test in
-``tests/test_atlas_curves.py`` can hold the fast path to the slow one.
+share that matrix. So a whole grid of cells becomes one
+:func:`numpy.linalg.lstsq` with many right-hand sides per candidate, instead of
+one solve per cell per candidate. :func:`fit_cells` does the grouping;
+``batched=False`` runs the same fits one cell at a time and exists so the
+equivalence test in ``tests/test_atlas_curves.py`` can hold the fast path to the
+slow one.
 
-The two genuinely nonlinear families (``exponential``, ``logistic``, and
-``power``'s exponent) additionally warm-start each cell's local refinement from
-the neighbouring grid cell's solution, since adjacent cells of the sweep differ
-by one step in ``nu_e`` or ``nu_h`` and their optima are close.
+The genuinely nonlinear families (``exponential``, ``power``, ``logistic``)
+additionally warm-start each cell's local refinement from the neighbouring grid
+cell's solution, since adjacent cells of the sweep differ by one step in
+``nu_e`` or ``nu_h`` and their optima are close. The grid solution is always
+kept as a competing start and a refinement is only accepted when it lowers the
+weighted SSE, so a bad warm start costs time and never accuracy.
 
 Isotonic regression is batched a different way: the min-max representation
 ``yhat_i = max_{k<=i} min_{j>=i} avg(k..j)`` is a pure array reduction, so all
@@ -57,7 +60,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import SupportsFloat, SupportsInt, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -66,6 +69,7 @@ from scipy import optimize
 
 __all__ = [
     "FAMILIES",
+    "LOOKUP_BASELINE",
     "CellKey",
     "ConstantFamily",
     "CurveData",
@@ -83,12 +87,14 @@ __all__ = [
     "batched_lstsq",
     "cells_from_frame",
     "family",
+    "fit_all_families",
     "fit_cells",
     "parametric_family_names",
 ]
 
 FloatArray = npt.NDArray[np.float64]
 IntArray = npt.NDArray[np.int64]
+BoolArray = npt.NDArray[np.bool_]
 
 _TINY = 1e-12
 
@@ -104,9 +110,9 @@ class CellKey:
 
     ``nu_e`` and ``nu_h`` stay separate here for the same reason
     :class:`instinct.core.env.Timing` keeps them separate: whether the surface
-    collapses onto their product is a hypothesis
-    (:mod:`instinct.atlas.transfer` tests it), and a key that folded them
-    together would make the hypothesis unfalsifiable by construction.
+    collapses onto their product is a hypothesis that
+    :mod:`instinct.atlas.transfer` tests, and a key that folded them together
+    would make the hypothesis unfalsifiable by construction.
     """
 
     env: str
@@ -130,10 +136,17 @@ class CurveData:
     """One cell's frontier: a response sampled along a budget axis.
 
     ``x`` is whatever axis the caller chose to fit against (continuous staleness
-    by default, but budget or integer delay are equally valid and the transfer
+    by default, but budget and integer delay are equally valid and the transfer
     tests use all three). ``budget`` and ``delay`` are carried alongside
     regardless, because the discretization confound can only be diagnosed by
     knowing which points collapsed onto the same delay.
+
+    ``noise`` is the per-point standard error carried over from the sweep's
+    reported interval. It is not used for weighting (see
+    :func:`cells_from_frame`) but it *is* what stops the held-out likelihood in
+    :mod:`instinct.atlas.fit` from inventing its own noise scale: with one
+    measurement per budget there is no replicate to estimate residual variance
+    from, so the only honest scale is the one the sweep already reported.
     """
 
     key: CellKey
@@ -142,6 +155,7 @@ class CurveData:
     budget: IntArray
     delay: IntArray
     weight: FloatArray
+    noise: FloatArray = field(default_factory=lambda: np.zeros(0))
     x_name: str = "staleness"
     y_name: str = "sigma"
 
@@ -153,6 +167,10 @@ class CurveData:
                 raise ValueError(f"{name} has shape {arr.shape}, expected ({n},)")
         if n == 0:
             raise ValueError("a curve needs at least one point")
+        if self.noise.shape == (0,) and n != 0:
+            object.__setattr__(self, "noise", np.zeros(n))
+        elif self.noise.shape != (n,):
+            raise ValueError(f"noise has shape {self.noise.shape}, expected ({n},)")
 
     @property
     def n(self) -> int:
@@ -165,9 +183,9 @@ class CurveData:
         difference and not a ratio: ``sigma`` legitimately passes through zero,
         so a relative error would explode exactly where the surface is flattest.
         """
-        return float(np.max(self.y) - np.min(self.y)) if self.n else 0.0
+        return float(np.max(self.y) - np.min(self.y))
 
-    def subset(self, mask: npt.NDArray[np.bool_]) -> CurveData:
+    def subset(self, mask: BoolArray) -> CurveData:
         return CurveData(
             key=self.key,
             x=self.x[mask],
@@ -175,6 +193,7 @@ class CurveData:
             budget=self.budget[mask],
             delay=self.delay[mask],
             weight=self.weight[mask],
+            noise=self.noise[mask],
             x_name=self.x_name,
             y_name=self.y_name,
         )
@@ -196,38 +215,48 @@ def cells_from_frame(
     isotonic and knot-search fits assume a sorted axis.
 
     ``weight`` names a column of per-point weights; the default weights every
-    point equally. Weighting by the reported CI width is available but is *not*
+    point equally. Weighting by the reported interval is available but is *not*
     the default, because the exact tabular arm reports a degenerate interval and
     silently upweighting it to infinity would let one arm of the sweep decide
-    the model selection for all of them.
+    model selection for all of them.
     """
-    for col in (x, y, "env", "reflex", "nu_e", "nu_h", "budget", "delay"):
-        if col not in df.columns:
-            raise ValueError(f"frame is missing column {col!r}")
+    required = ("env", "reflex", "nu_e", "nu_h", "budget", "delay", "start_state", x, y)
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"frame is missing columns: {missing}")
     if weight is not None and weight not in df.columns:
         raise ValueError(f"frame is missing weight column {weight!r}")
 
-    group_cols = ["env", "reflex", "nu_e", "nu_h", "start_state"]
-    if "start_state" not in df.columns:
-        raise ValueError("frame is missing column 'start_state'")
-
     cells: list[CurveData] = []
+    group_cols = ["env", "reflex", "nu_e", "nu_h", "start_state"]
     for keys, sub in df.groupby(group_cols, sort=True):
         sub = sub.sort_values(x, kind="stable")
-        env, reflex, nu_e, nu_h, start_state = keys  # type: ignore[misc]
+        env, reflex, nu_e, nu_h, start_state = keys
         w = (
             np.asarray(sub[weight], dtype=np.float64)
             if weight is not None
             else np.ones(len(sub), dtype=np.float64)
         )
+        if {"ci_lo", "ci_hi"} <= set(sub.columns):
+            # Half-width of a 95% interval back to a standard error.
+            se = np.abs(np.asarray(sub["ci_hi"] - sub["ci_lo"], dtype=np.float64)) / (2 * 1.959964)
+        else:
+            se = np.zeros(len(sub))
         cells.append(
             CurveData(
-                key=CellKey(str(env), str(reflex), float(nu_e), float(nu_h), int(start_state)),
+                key=CellKey(
+                    str(env),
+                    str(reflex),
+                    float(cast(SupportsFloat, nu_e)),
+                    float(cast(SupportsFloat, nu_h)),
+                    int(cast(SupportsInt, start_state)),
+                ),
                 x=np.asarray(sub[x], dtype=np.float64),
                 y=np.asarray(sub[y], dtype=np.float64),
                 budget=np.asarray(sub["budget"], dtype=np.int64),
                 delay=np.asarray(sub["delay"], dtype=np.int64),
                 weight=w,
+                noise=se,
                 x_name=x,
                 y_name=y,
             )
@@ -244,15 +273,15 @@ def cells_from_frame(
 class CurveFit:
     """A fitted curve, carrying enough state to predict at unseen ``x``.
 
-    ``n_params`` is a float because two of the families do not have an integer
-    count: the smoother's effective degrees of freedom is the trace of its hat
-    matrix, and isotonic's is its number of level sets. Rounding either one up
-    to "nonparametric, so infinite" would make the information criteria refuse
-    to compare them; rounding down to 1 would let them win everything.
+    ``n_params`` is a float because two families do not have an integer count:
+    the smoother's effective degrees of freedom is the trace of its hat matrix,
+    and isotonic's is its number of level sets. Calling either "nonparametric,
+    so infinite" would stop the information criteria comparing them at all;
+    calling either 1 would let them win everything.
     """
 
     family: str
-    beta: FloatArray  # linear coefficients, or per-knot levels for the tabular fits
+    beta: FloatArray  # linear coefficients, or per-point levels for the tabular fits
     phi: FloatArray  # nonlinear parameters: rates, knots, lengthscales
     sse: float  # weighted in-sample sum of squares
     n_points: int
@@ -279,13 +308,13 @@ class CurveFit:
 def batched_lstsq(A: FloatArray, Y: FloatArray) -> tuple[FloatArray, FloatArray]:
     """Least squares for one design and many responses.
 
-    ``A`` is ``(m, p)``, ``Y`` is ``(m, n)``; returns coefficients ``(p, n)``
-    and the per-column sum of squared residuals ``(n,)``. This is the whole
-    batching trick: LAPACK factorizes ``A`` once and back-substitutes ``n``
-    times, so the marginal cost of another cell is a triangular solve rather
-    than another factorization.
+    ``A`` is ``(m, p)``, ``Y`` is ``(m, n)``; returns coefficients ``(p, n)`` and
+    the per-column sum of squared residuals ``(n,)``. This is the whole batching
+    trick: LAPACK factorizes ``A`` once and back-substitutes ``n`` times, so the
+    marginal cost of another cell is a triangular solve rather than another
+    factorization.
 
-    The residual is recomputed explicitly rather than read from ``lstsq``'s
+    The residual is recomputed explicitly rather than read out of ``lstsq``'s
     third return value, which is empty whenever the design is rank-deficient —
     exactly the case a knot search hits when a candidate knot falls outside the
     data and two basis columns coincide.
@@ -304,8 +333,8 @@ def batched_lstsq(A: FloatArray, Y: FloatArray) -> tuple[FloatArray, FloatArray]
 class CurveFamily(ABC):
     """A candidate shape, fittable to many cells at once."""
 
-    name: ClassVar[str] = "abstract"
-    parametric: ClassVar[bool] = True
+    name: str = "abstract"
+    parametric: bool = True
 
     @abstractmethod
     def fit_batch(
@@ -345,6 +374,28 @@ def _weights_or_ones(weights: FloatArray | None, m: int) -> FloatArray:
     return w
 
 
+def _span(x: FloatArray) -> float:
+    s = float(np.max(x) - np.min(x))
+    return s if s > _TINY else 1.0
+
+
+def _interior_knots(x: FloatArray, max_knots: int = 24) -> FloatArray:
+    """Candidate knot locations: midpoints between consecutive distinct ``x``.
+
+    Midpoints rather than data points so that a step model's discontinuity never
+    lands *on* an observation, where its value would be decided by a tie-break
+    rather than by the data.
+    """
+    u = np.unique(x)
+    if u.size < 3:
+        return np.zeros(0)
+    mids = 0.5 * (u[:-1] + u[1:])
+    if mids.size > max_knots:
+        idx = np.unique(np.linspace(0, mids.size - 1, max_knots).round().astype(np.int64))
+        mids = mids[idx]
+    return np.asarray(mids, dtype=np.float64)
+
+
 # --------------------------------------------------------------------------
 # Separable families: linear in beta given phi
 # --------------------------------------------------------------------------
@@ -354,29 +405,39 @@ class SeparableFamily(CurveFamily):
     """Base for families that are linear once their nonlinear parameters are fixed.
 
     Fitting is variable projection: enumerate candidate ``phi``, solve the linear
-    problem exactly for each, keep the best. That is more robust than throwing
-    the whole parameter vector at a general optimizer, which for a knot model
-    lands in a local minimum whenever the initial knot sits in the wrong segment
-    — a failure that looks like "the piecewise model didn't help", i.e. like a
+    problem exactly for each, keep the best. That is more robust than handing the
+    whole parameter vector to a general optimizer, which for a knot model lands
+    in a local minimum whenever the starting knot sits in the wrong segment — a
+    failure that looks like "the piecewise model didn't help", i.e. like a
     scientific result rather than the numerical accident it is.
+
+    ``anchor`` holds the location and scale the basis is expressed in. It is
+    derived from the *training* ``x`` and recomputed from ``x_train`` at predict
+    time, never from the points being predicted; a basis that re-centred itself
+    on the evaluation grid would silently change the function it represents
+    between fitting and transfer, which is the one place this module must be
+    exact.
     """
 
-    n_phi: ClassVar[int] = 0
-    refine: ClassVar[bool] = False
+    n_phi: int = 0
+    refine: bool = False
+
+    def anchor(self, x_train: FloatArray) -> FloatArray:
+        return np.array([float(np.min(x_train)), _span(x_train)])
 
     @abstractmethod
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         """Candidate nonlinear parameters, shape ``(n_candidates, n_phi)``."""
 
     @abstractmethod
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
         """Design matrix ``(m, p)`` for one candidate."""
 
     def phi_bounds(self, x: FloatArray) -> tuple[FloatArray, FloatArray]:
-        """Box constraints for the local refinement; unused when ``refine`` is False."""
-        raise NotImplementedError
+        """Box constraints for local refinement; unused when ``refine`` is False."""
+        raise NotImplementedError(f"{self.name} declared refine=True without bounds")
 
-    def n_params_for(self, phi: FloatArray, beta: FloatArray) -> float:
+    def n_params_for(self, beta: FloatArray) -> float:
         return float(beta.shape[0] + self.n_phi)
 
     # -- fitting ----------------------------------------------------------
@@ -395,79 +456,91 @@ class SeparableFamily(CurveFamily):
         w = _weights_or_ones(weights, m)
         sw = np.sqrt(w)[:, None]
         Yw = Y * sw
+        anc = self.anchor(x)
 
-        cands = np.atleast_2d(np.asarray(self.phi_candidates(x), dtype=np.float64))
-        if cands.size == 0:
-            cands = np.zeros((1, self.n_phi))
+        raw = np.asarray(self.phi_candidates(x), dtype=np.float64)
+        # A family with no nonlinear parameters has exactly one candidate: the
+        # empty one. Reshaping an empty array to (-1, 0) is ambiguous, so say it.
+        cands = raw.reshape(-1, self.n_phi) if self.n_phi else np.zeros((1, 0))
 
         best_sse = np.full(n, np.inf)
-        best_phi = np.zeros((n, max(self.n_phi, 1)))
+        best_phi = np.zeros((n, self.n_phi))
         best_beta: list[FloatArray] = [np.zeros(1) for _ in range(n)]
 
         feasible = 0
         for phi in cands:
-            A = self.design(phi, x)
+            A = self.design(phi, x, anc)
             if A.shape[1] > m:
                 continue
             feasible += 1
             coef, sse = batched_lstsq(A * sw, Yw)
             better = sse < best_sse
-            if np.any(better):
+            if bool(np.any(better)):
                 best_sse = np.where(better, sse, best_sse)
-                idx = np.flatnonzero(better)
-                for j in idx:
-                    best_phi[j, : self.n_phi] = phi
+                for j in np.flatnonzero(better):
+                    best_phi[j] = phi
                     best_beta[j] = coef[:, j]
+
         if feasible == 0:
-            # Not enough distinct points to identify this shape. Fall back to the
+            # Too few distinct points to identify this shape. Fall back to the
             # cell mean rather than inventing a fit; selection will drop it.
-            A = np.ones((m, 1))
-            coef, sse = batched_lstsq(A * sw, Yw)
-            return [
-                CurveFit(
-                    family=self.name,
-                    beta=coef[:, j],
-                    phi=np.zeros(self.n_phi),
-                    sse=float(sse[j]),
-                    n_points=m,
-                    n_params=1.0,
-                    x_train=x,
-                    fitted=A @ coef[:, j],
-                )
-                for j in range(n)
-            ]
+            return self._degenerate(x, Y, sw, Yw)
 
         if self.refine:
-            self._refine_columns(x, Yw, sw, best_phi, best_beta, best_sse, warm_start)
+            self._refine_columns(x, anc, Yw, sw, best_phi, best_beta, best_sse, warm_start)
 
         fits: list[CurveFit] = []
-        for j in range(n):
-            phi_j = best_phi[j, : self.n_phi]
-            A = self.design(phi_j, x)
+        for col in range(n):
+            A = self.design(best_phi[col], x, anc)
             fits.append(
                 CurveFit(
                     family=self.name,
                     beta=best_beta[j],
-                    phi=phi_j.copy(),
+                    phi=best_phi[j].copy(),
                     sse=float(best_sse[j]),
                     n_points=m,
-                    n_params=self.n_params_for(phi_j, best_beta[j]),
+                    n_params=self.n_params_for(best_beta[j]),
                     x_train=x,
                     fitted=A @ best_beta[j],
                 )
             )
         return fits
 
+    def _degenerate(
+        self, x: FloatArray, Y: FloatArray, sw: FloatArray, Yw: FloatArray
+    ) -> list[CurveFit]:
+        A = np.ones((Y.shape[0], 1))
+        coef, sse = batched_lstsq(A * sw, Yw)
+        return [
+            CurveFit(
+                family=self.name,
+                beta=coef[:, j],
+                phi=np.full(self.n_phi, np.nan),
+                sse=float(sse[j]),
+                n_points=Y.shape[0],
+                n_params=1.0,
+                x_train=x,
+                fitted=np.full(Y.shape[0], float(coef[0, j])),
+            )
+            for j in range(Y.shape[1])
+        ]
+
     def _solve_at(
-        self, phi: FloatArray, x: FloatArray, Yw_col: FloatArray, sw: FloatArray
+        self,
+        phi: FloatArray,
+        x: FloatArray,
+        anc: FloatArray,
+        Yw_col: FloatArray,
+        sw: FloatArray,
     ) -> tuple[FloatArray, float]:
-        A = self.design(phi, x) * sw
+        A = self.design(phi, x, anc) * sw
         coef, sse = batched_lstsq(A, Yw_col[:, None])
         return coef[:, 0], float(sse[0])
 
     def _refine_columns(
         self,
         x: FloatArray,
+        anc: FloatArray,
         Yw: FloatArray,
         sw: FloatArray,
         best_phi: FloatArray,
@@ -478,31 +551,28 @@ class SeparableFamily(CurveFamily):
         """Polish each column's nonlinear parameters, warm-started from its neighbour.
 
         Columns arrive in grid order, so column ``j-1`` is one step away in
-        ``nu_e`` or ``nu_h`` and its optimum is the cheapest good guess
-        available. The grid solution is kept as a fallback start, so a warm start
-        that happens to be bad costs a few evaluations and never a worse fit:
-        the refinement is only accepted when it lowers the weighted SSE.
+        ``nu_e`` or ``nu_h`` and its optimum is the cheapest good guess going.
+        The grid solution is kept as a competing start and the refinement is only
+        committed when it lowers the weighted SSE, so a warm start that happens
+        to be bad costs a few function evaluations and never a worse fit.
         """
         lo, hi = self.phi_bounds(x)
-        n = Yw.shape[1]
         previous: FloatArray | None = None
-        for j in range(n):
-            starts: list[FloatArray] = [best_phi[j, : self.n_phi].copy()]
+        for j in range(Yw.shape[1]):
+            starts: list[FloatArray] = [best_phi[j].copy()]
             if previous is not None:
                 starts.append(previous.copy())
             if warm_start is not None and warm_start.shape[0] > j:
                 starts.append(np.asarray(warm_start[j, : self.n_phi], dtype=np.float64))
 
-            scored = []
-            for s in starts:
-                s = np.clip(s, lo, hi)
-                _beta, sse = self._solve_at(s, x, Yw[:, j], sw)
-                scored.append((sse, s))
-            scored.sort(key=lambda t: t[0])
-            phi0 = scored[0][1]
+            scored = [
+                (self._solve_at(np.clip(s, lo, hi), x, anc, Yw[:, j], sw)[1], np.clip(s, lo, hi))
+                for s in starts
+            ]
+            phi0 = min(scored, key=lambda t: t[0])[1]
 
             def residual(p: FloatArray, col: int = j) -> FloatArray:
-                A = self.design(p, x) * sw
+                A = self.design(p, x, anc) * sw
                 coef, _ = batched_lstsq(A, Yw[:, col][:, None])
                 return np.asarray(A @ coef[:, 0] - Yw[:, col], dtype=np.float64)
 
@@ -515,73 +585,52 @@ class SeparableFamily(CurveFamily):
                 continue
 
             phi_new = np.asarray(sol.x, dtype=np.float64)
-            beta_new, sse_new = self._solve_at(phi_new, x, Yw[:, j], sw)
+            beta_new, sse_new = self._solve_at(phi_new, x, anc, Yw[:, j], sw)
             if sse_new < best_sse[j]:
                 best_sse[j] = sse_new
-                best_phi[j, : self.n_phi] = phi_new
+                best_phi[j] = phi_new
                 best_beta[j] = beta_new
-            previous = best_phi[j, : self.n_phi].copy()
+            previous = best_phi[j].copy()
 
     def predict(self, fit: CurveFit, x: FloatArray) -> FloatArray:
-        A = self.design(fit.phi, np.asarray(x, dtype=np.float64))
-        if A.shape[1] != fit.beta.shape[0]:
-            # Degenerate fallback fit (cell mean) evaluated at new points.
-            return np.full(x.shape[0], float(fit.beta[0]))
+        xs = np.asarray(x, dtype=np.float64)
+        if not np.all(np.isfinite(fit.phi)):  # degenerate fallback fit
+            return np.full(xs.shape[0], float(fit.beta[0]))
+        A = self.design(fit.phi, xs, self.anchor(fit.x_train))
         return np.asarray(A @ fit.beta, dtype=np.float64)
-
-
-def _interior_knots(x: FloatArray, max_knots: int = 24) -> FloatArray:
-    """Candidate knot locations: midpoints between consecutive distinct ``x``.
-
-    Midpoints rather than data points so that a step model's discontinuity never
-    lands *on* an observation, where its value would be decided by a tie-break
-    rather than by the data.
-    """
-    u = np.unique(x)
-    if u.size < 3:
-        return np.zeros(0)
-    mids = 0.5 * (u[:-1] + u[1:])
-    if mids.size > max_knots:
-        idx = np.linspace(0, mids.size - 1, max_knots).round().astype(int)
-        mids = mids[np.unique(idx)]
-    return mids
-
-
-def _span(x: FloatArray) -> float:
-    s = float(np.max(x) - np.min(x))
-    return s if s > _TINY else 1.0
 
 
 class ConstantFamily(SeparableFamily):
     """``y = c``. Budget buys nothing.
 
-    Present because "the surface is flat within noise" is a real and reportable
-    outcome, and because every other family's improvement has to be measured
-    against something.
+    In the pool because "the surface is flat within noise" is a real and
+    reportable outcome, and because every other family's improvement has to be
+    measured against something.
     """
 
-    name: ClassVar[str] = "constant"
-    n_phi: ClassVar[int] = 0
+    name = "constant"
+    n_phi = 0
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         return np.zeros((1, 0))
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
         return np.ones((x.shape[0], 1))
 
 
 class ExponentialFamily(SeparableFamily):
-    """``y = a + b * exp(-h * x)``: decay with a constant hazard.
+    """``y = a + b * exp(-h * (x - x0))``: decay with a constant hazard.
 
-    ``h`` is constrained positive and the sign of ``b`` carries the direction,
-    so this covers saturating growth as well as decay but never runaway growth —
-    a staleness curve that diverges with staleness is not a hypothesis worth
-    keeping in the pool.
+    ``h`` is constrained positive and the sign of ``b`` carries the direction, so
+    this covers saturating growth as well as decay but never runaway growth: a
+    staleness curve that diverges with staleness is not a hypothesis worth
+    keeping in the pool, and allowing it would let the optimizer escape into a
+    region where the basis overflows.
     """
 
-    name: ClassVar[str] = "exponential"
-    n_phi: ClassVar[int] = 1
-    refine: ClassVar[bool] = True
+    name = "exponential"
+    n_phi = 1
+    refine = True
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         s = _span(x)
@@ -591,22 +640,23 @@ class ExponentialFamily(SeparableFamily):
         s = _span(x)
         return np.array([1e-4 / s]), np.array([1e3 / s])
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
         h = float(phi[0])
-        return np.column_stack([np.ones_like(x), np.exp(-h * (x - float(np.min(x))))])
+        z = np.clip(h * (x - anchor[0]), -600.0, 600.0)
+        return np.column_stack([np.ones_like(x), np.exp(-z)])
 
 
 class PowerFamily(SeparableFamily):
-    """``y = a + b * (1 + x/s)**(-p)``: decay with no characteristic timescale.
+    """``y = a + b * (1 + (x - x0)/s)**(-p)``: decay with no characteristic timescale.
 
-    The offset ``1 +`` keeps the basis finite at ``x = 0``, which matters because
+    The ``1 +`` keeps the basis finite at the left edge, which matters because
     the smallest budget in every sweep sits at or near zero staleness and an
-    unshifted power law would put an asymptote exactly there.
+    unshifted power law would put its asymptote exactly there.
     """
 
-    name: ClassVar[str] = "power"
-    n_phi: ClassVar[int] = 1
-    refine: ClassVar[bool] = True
+    name = "power"
+    n_phi = 1
+    refine = True
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         return np.geomspace(0.05, 12.0, 24)[:, None]
@@ -614,11 +664,10 @@ class PowerFamily(SeparableFamily):
     def phi_bounds(self, x: FloatArray) -> tuple[FloatArray, FloatArray]:
         return np.array([1e-3]), np.array([60.0])
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
         p = float(phi[0])
-        s = _span(x)
-        z = np.maximum(1.0 + (x - float(np.min(x))) / s, _TINY)
-        return np.column_stack([np.ones_like(x), z**(-p)])
+        z = np.maximum(1.0 + (x - anchor[0]) / anchor[1], _TINY)
+        return np.column_stack([np.ones_like(x), z ** (-p)])
 
 
 class ThresholdFamily(SeparableFamily):
@@ -626,60 +675,56 @@ class ThresholdFamily(SeparableFamily):
 
     The family most at risk of being an artifact. Delays are integers, so a run
     of budgets can share one delay and produce a step that belongs to the
-    rounding rule, not to the environment. Winning here is therefore never
+    rounding rule rather than to the environment. Winning here is therefore never
     enough to claim a threshold regime; :func:`instinct.atlas.fit.taxonomy`
     cross-checks against the delay grouping before it will use the label.
     """
 
-    name: ClassVar[str] = "threshold"
-    n_phi: ClassVar[int] = 1
+    name = "threshold"
+    n_phi = 1
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         return _interior_knots(x)[:, None]
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
-        t = float(phi[0])
-        return np.column_stack([np.ones_like(x), (x > t).astype(np.float64)])
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
+        return np.column_stack([np.ones_like(x), (x > float(phi[0])).astype(np.float64)])
 
 
 class HingeFamily(SeparableFamily):
     """``y = a + b * max(x - t, 0)``: flat, then linear.
 
-    A deadline model. Distinct from :class:`PiecewiseLinearFamily` with one knot
+    A deadline model. Distinct from a one-knot :class:`PiecewiseLinearFamily`
     because it forces the first segment to be exactly flat, which is a stronger
-    and cheaper claim than "two slopes".
+    and one-parameter-cheaper claim than "two slopes".
     """
 
-    name: ClassVar[str] = "hinge"
-    n_phi: ClassVar[int] = 1
+    name = "hinge"
+    n_phi = 1
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         return _interior_knots(x)[:, None]
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
-        t = float(phi[0])
-        return np.column_stack([np.ones_like(x), np.maximum(x - t, 0.0)])
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
+        return np.column_stack([np.ones_like(x), np.maximum(x - float(phi[0]), 0.0)])
 
 
 class PiecewiseLinearFamily(SeparableFamily):
-    """Continuous piecewise linear with ``n_knots`` interior breakpoints.
+    """Continuous piecewise linear with one or two interior breakpoints.
 
-    Two knots is where the taxonomy's "irreversible" shape lives: an initial
+    Two knots is where the taxonomy's *irreversible* shape lives: an initial
     slope, a steeper drop once the plan goes stale, and a floor where the
     trajectory has already been lost and further staleness costs nothing more.
-    Fitting the knots by exhaustive search over midpoint pairs is affordable
-    (a few hundred designs) and, unlike gradient descent on the knots, cannot
+    Fitting the knots by exhaustive search over midpoint pairs is affordable (a
+    few hundred designs) and, unlike gradient descent on knot positions, cannot
     stall in the wrong segment.
     """
-
-    n_phi: ClassVar[int] = 0  # set per instance below
 
     def __init__(self, n_knots: int = 1) -> None:
         if n_knots not in (1, 2):
             raise ValueError("only 1- and 2-knot piecewise linear fits are in the pool")
         self.n_knots = n_knots
-        self.name = f"pwlinear{n_knots + 1}"  # type: ignore[misc]
-        self.n_phi = n_knots  # type: ignore[misc]
+        self.name = f"pwlinear{n_knots + 1}"
+        self.n_phi = n_knots
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         mids = _interior_knots(x)
@@ -692,7 +737,7 @@ class PiecewiseLinearFamily(SeparableFamily):
             return np.zeros((0, 2))
         return np.asarray(pairs, dtype=np.float64)
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
         cols = [np.ones_like(x), x]
         cols.extend(np.maximum(x - float(t), 0.0) for t in phi[: self.n_knots])
         return np.column_stack(cols)
@@ -702,15 +747,15 @@ class LogisticFamily(SeparableFamily):
     """``y = a + b / (1 + exp(k * (x - x0)))``: a threshold with a finite width.
 
     Sits between :class:`ThresholdFamily` and the smooth decays, and earns its
-    place by being the only family that can report *how sharp* a transition is.
-    A surface where logistic wins with a large ``k`` is a threshold; one where it
-    wins with a small ``k`` is a smooth decay wearing a different hat, and the
-    taxonomy reads ``k`` rather than the family name.
+    place by being the only family that reports *how sharp* a transition is. A
+    surface where logistic wins with a large ``k`` is a threshold; one where it
+    wins with a small ``k`` is a smooth decay wearing a different hat. The
+    taxonomy reads ``k``, not the family name.
     """
 
-    name: ClassVar[str] = "logistic"
-    n_phi: ClassVar[int] = 2
-    refine: ClassVar[bool] = True
+    name = "logistic"
+    n_phi = 2
+    refine = True
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         s = _span(x)
@@ -726,42 +771,42 @@ class LogisticFamily(SeparableFamily):
         hi = np.array([1e4 / s, float(np.max(x)) + s])
         return lo, hi
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
-        k, x0 = float(phi[0]), float(phi[1])
-        z = np.clip(k * (x - x0), -60.0, 60.0)
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
+        z = np.clip(float(phi[0]) * (x - float(phi[1])), -60.0, 60.0)
         return np.column_stack([np.ones_like(x), 1.0 / (1.0 + np.exp(z))])
 
 
 class LookupFamily(SeparableFamily):
     """One free value per distinct ``x``. The baseline that decides whether P1 has a law.
 
-    Deliberately the saturated model: it can reproduce any surface exactly
-    in-sample, so it only loses out of sample, and only to a family that has
-    found real structure. Prediction at an unseen ``x`` falls back to the nearest
+    Deliberately the saturated model: it reproduces any surface exactly
+    in-sample, so it can only lose out of sample, and only to a family that found
+    real structure. Prediction at an unseen ``x`` falls back to the nearest
     trained value, which is the strongest honest thing a table can do — a table
     that interpolated would be a smoothness assumption smuggled into the
     baseline, and the baseline is precisely where no assumptions are allowed.
     """
 
-    name: ClassVar[str] = "lookup"
-    parametric: ClassVar[bool] = False
-    n_phi: ClassVar[int] = 0
+    name = "lookup"
+    parametric = False
+    n_phi = 0
 
     def phi_candidates(self, x: FloatArray) -> FloatArray:
         return np.zeros((1, 0))
 
-    def design(self, phi: FloatArray, x: FloatArray) -> FloatArray:
+    def design(self, phi: FloatArray, x: FloatArray, anchor: FloatArray) -> FloatArray:
         levels = np.unique(x)
-        return (x[:, None] == levels[None, :]).astype(np.float64)
+        return (np.abs(x[:, None] - levels[None, :]) <= _TINY).astype(np.float64)
 
-    def n_params_for(self, phi: FloatArray, beta: FloatArray) -> float:
+    def n_params_for(self, beta: FloatArray) -> float:
         return float(beta.shape[0])
 
     def predict(self, fit: CurveFit, x: FloatArray) -> FloatArray:
+        xs = np.asarray(x, dtype=np.float64)
         levels = np.unique(fit.x_train)
         if fit.beta.shape[0] != levels.shape[0]:  # degenerate fallback
-            return np.full(x.shape[0], float(fit.beta[0]))
-        idx = np.abs(np.asarray(x, dtype=np.float64)[:, None] - levels[None, :]).argmin(axis=1)
+            return np.full(xs.shape[0], float(fit.beta[0]))
+        idx = np.abs(xs[:, None] - levels[None, :]).argmin(axis=1)
         return np.asarray(fit.beta[idx], dtype=np.float64)
 
 
@@ -777,33 +822,28 @@ def _pava_batch(Y: FloatArray, w: FloatArray) -> FloatArray:
 
         ``yhat_i = max_{k<=i} min_{j>=i} Av(k, j)``
 
-    where ``Av(k, j)`` is the weighted mean of block ``k..j``. Pool-adjacent-
+    with ``Av(k, j)`` the weighted mean of block ``k..j``. Pool-adjacent-
     violators is asymptotically cheaper, but its control flow depends on the
-    data, so it cannot be run across cells in lockstep — and with the ~10-40
-    budgets a sweep actually uses, the O(m^2) reduction over all cells at once
-    is much faster in practice than a Python PAVA loop per cell. The test suite
-    checks it against ``scipy.optimize.isotonic_regression``.
+    data, so it cannot run across cells in lockstep. With the ten to forty
+    budgets a sweep actually uses, one ``O(m^2)`` array reduction over all cells
+    beats a Python PAVA loop per cell by a wide margin, and the test suite pins
+    it to ``scipy.optimize.isotonic_regression``.
     """
     m, n = Y.shape
     cs = np.zeros((m + 1, n))
     np.cumsum(Y * w[:, None], axis=0, out=cs[1:])
-    cw = np.concatenate([[0.0], np.cumsum(w)])
+    cw = np.concatenate([np.zeros(1), np.cumsum(w)])
 
-    # Av[k, j, :] = weighted mean over rows k..j
-    num = cs[None, 1:, :] - cs[:-1, None, :]  # (k, j, n)
-    den = cw[None, 1:] - cw[:-1, None]  # (k, j)
+    num = cs[None, 1:, :] - cs[:-1, None, :]  # (k, j, n): sum over rows k..j
+    den = cw[None, 1:] - cw[:-1, None]  # (k, j): weight of rows k..j
     with np.errstate(divide="ignore", invalid="ignore"):
         av = num / den[:, :, None]
-    upper = np.triu(np.ones((m, m), dtype=bool))  # k <= j
-    av = np.where(upper[:, :, None], av, np.inf)
-    av = np.where(np.isfinite(av), av, np.inf)
+    valid = np.triu(np.ones((m, m), dtype=bool))  # k <= j
+    av = np.where(valid[:, :, None] & np.isfinite(av), av, np.inf)
 
-    # S[k, i] = min over j >= i (and j >= k) of Av[k, j]
-    suffix_min = np.minimum.accumulate(av[:, ::-1, :], axis=1)[:, ::-1, :]
-    # restrict the outer max to k <= i
-    lower = np.tril(np.ones((m, m), dtype=bool))  # k <= i  (rows k, cols i)
-    masked = np.where(upper[:, :, None], suffix_min, -np.inf)
-    masked = np.where(lower.T[:, :, None] | upper[:, :, None], masked, -np.inf)
+    suffix_min = np.minimum.accumulate(av[:, ::-1, :], axis=1)[:, ::-1, :]  # min over j >= i
+    # The outer maximum runs over k <= i; `valid` reused with its columns read as i.
+    masked = np.where(valid[:, :, None], suffix_min, -np.inf)
     return np.asarray(np.max(masked, axis=0), dtype=np.float64)
 
 
@@ -815,14 +855,14 @@ class IsotonicFamily(CurveFamily):
     nothing else. A parametric family that cannot beat isotonic out of sample has
     contributed a functional form and no information.
 
-    ``direction`` is fixed by the caller rather than fitted. Choosing the better
-    of increasing and decreasing per cell would spend a parameter that the
-    information criteria here do not charge for, and would let noise-only cells
-    look structured.
+    ``direction`` is set by the caller rather than fitted. Choosing the better of
+    increasing and decreasing per cell would spend a parameter the information
+    criteria here do not charge for, and would let noise-only cells look
+    structured.
     """
 
-    name: ClassVar[str] = "isotonic"
-    parametric: ClassVar[bool] = False
+    name = "isotonic"
+    parametric = False
 
     def __init__(self, direction: str = "decreasing") -> None:
         if direction not in ("increasing", "decreasing"):
@@ -843,35 +883,31 @@ class IsotonicFamily(CurveFamily):
         w = _weights_or_ones(weights, m)
         order = np.argsort(x, kind="stable")
         sign = -1.0 if self.direction == "decreasing" else 1.0
-        yhat_sorted = _pava_batch(sign * Y[order], w[order])
+
         fitted = np.empty_like(Y)
-        fitted[order] = sign * yhat_sorted
+        fitted[order] = sign * _pava_batch(sign * Y[order], w[order])
 
         resid = Y - fitted
         sse = np.einsum("mn,mn->n", resid * w[:, None], resid)
-        fits: list[CurveFit] = []
-        for j in range(n):
-            blocks = float(np.unique(np.round(fitted[:, j], 12)).size)
-            fits.append(
-                CurveFit(
-                    family=self.name,
-                    beta=fitted[:, j].copy(),
-                    phi=np.array([1.0 if sign > 0 else -1.0]),
-                    sse=float(sse[j]),
-                    n_points=m,
-                    n_params=blocks,
-                    x_train=x,
-                    fitted=fitted[:, j].copy(),
-                )
+        return [
+            CurveFit(
+                family=self.name,
+                beta=fitted[:, j].copy(),
+                phi=np.array([sign]),
+                sse=float(sse[j]),
+                n_points=m,
+                n_params=float(np.unique(np.round(fitted[:, j], 12)).size),
+                x_train=x,
+                fitted=fitted[:, j].copy(),
             )
-        return fits
+            for j in range(n)
+        ]
 
     def predict(self, fit: CurveFit, x: FloatArray) -> FloatArray:
         order = np.argsort(fit.x_train, kind="stable")
         xs, ys = fit.x_train[order], fit.beta[order]
         idx = np.searchsorted(xs, np.asarray(x, dtype=np.float64), side="right") - 1
-        idx = np.clip(idx, 0, xs.shape[0] - 1)
-        return np.asarray(ys[idx], dtype=np.float64)
+        return np.asarray(ys[np.clip(idx, 0, xs.shape[0] - 1)], dtype=np.float64)
 
 
 class GPFamily(CurveFamily):
@@ -880,17 +916,17 @@ class GPFamily(CurveFamily):
     Smooth but shape-free: the counterpart to isotonic for the hypothesis "the
     curve is smooth" without committing to *which* smooth curve. Hyperparameters
     come from generalized cross-validation rather than marginal likelihood
-    because GCV is a single closed-form expression on a shared hat matrix, so a
-    whole grid of cells is scored in one matrix product — and because the
+    because GCV is one closed-form expression on a shared hat matrix, so a whole
+    grid of cells is scored in a single matrix product — and because a marginal
     likelihood here would be conditioned on a noise model the sweep has not
     established.
 
-    Effective degrees of freedom is ``trace(H)``, which is what makes it
-    comparable to the parametric families under AIC/BIC.
+    Effective degrees of freedom is ``trace(H)``, which is what makes the
+    smoother comparable to the parametric families under AIC and BIC.
     """
 
-    name: ClassVar[str] = "gp"
-    parametric: ClassVar[bool] = False
+    name = "gp"
+    parametric = False
 
     def __init__(
         self,
@@ -918,13 +954,12 @@ class GPFamily(CurveFamily):
         m, n = Y.shape
         w = _weights_or_ones(weights, m)
         span = _span(x)
-        y_scale = np.maximum(Y.std(axis=0), _TINY)
 
         best_gcv = np.full(n, np.inf)
         best_alpha = np.zeros((m, n))
-        best_fitted = np.zeros((m, n))
-        best_phi = np.zeros((n, 2))
-        best_df = np.zeros(n)
+        best_fitted = np.tile(Y.mean(axis=0), (m, 1))
+        best_phi = np.tile(np.array([span, 1.0]), (n, 1))
+        best_df = np.ones(n)
 
         for f in self.lengthscale_factors:
             ell = max(f * span, _TINY)
@@ -934,20 +969,22 @@ class GPFamily(CurveFamily):
                     inv = np.linalg.inv(K + lam * np.eye(m))
                 except np.linalg.LinAlgError:
                     continue
+                if not np.all(np.isfinite(inv)):
+                    continue
                 H = K @ inv
                 df = float(np.trace(H))
-                if df > m - 0.5:
+                if not np.isfinite(df) or df > m - 0.5:
                     continue
                 fitted = H @ Y
                 resid = Y - fitted
                 sse = np.einsum("mn,mn->n", resid * w[:, None], resid)
-                gcv = m * sse / ((m - df) ** 2 * y_scale**2)
+                gcv = m * sse / (m - df) ** 2
                 better = gcv < best_gcv
-                if np.any(better):
+                if bool(np.any(better)):
                     best_gcv = np.where(better, gcv, best_gcv)
                     best_fitted[:, better] = fitted[:, better]
                     best_alpha[:, better] = (inv @ Y)[:, better]
-                    best_phi[better] = (ell, lam)
+                    best_phi[better] = np.array([ell, lam])
                     best_df[better] = df
 
         resid = Y - best_fitted
@@ -1006,17 +1043,13 @@ def family(name: str) -> CurveFamily:
 
 
 def parametric_family_names() -> list[str]:
-    """Families that claim a functional form, i.e. everything the lookup must beat."""
+    """Families that claim a functional form: everything the lookup table must beat.
+
+    ``constant`` is excluded because beating a lookup table with a flat line is a
+    statement about the surface being featureless, not about a law having been
+    found, and lumping the two together would let a dead cell count as a win.
+    """
     return [n for n, f in FAMILIES.items() if f.parametric and n != "constant"]
-
-
-@dataclass(frozen=True, slots=True)
-class BatchReport:
-    """How much work the batched path actually shared."""
-
-    n_cells: int
-    n_groups: int
-    group_sizes: tuple[int, ...] = field(default_factory=tuple)
 
 
 def _group_key(x: FloatArray) -> bytes:
@@ -1029,13 +1062,14 @@ def fit_cells(
     *,
     batched: bool = True,
 ) -> list[CurveFit]:
-    """Fit one family to many cells.
+    """Fit one family to many cells, returning fits in the order the cells came in.
 
-    ``batched=True`` groups cells by their shared ``x`` grid and solves each
-    group in one pass; ``batched=False`` fits them one at a time. The two must
-    agree to numerical tolerance, and ``tests/test_atlas_curves.py`` asserts it
-    — a fast path that quietly disagreed with the reference would corrupt every
-    downstream verdict while looking like a speedup.
+    ``batched=True`` groups cells by their shared ``x`` grid and weights and
+    solves each group in one pass; ``batched=False`` fits them one at a time.
+    The two must agree to numerical tolerance, and
+    ``tests/test_atlas_curves.py`` asserts it — a fast path that quietly
+    disagreed with the reference would corrupt every downstream verdict while
+    looking like a speedup.
     """
     fam = family(name)
     if not cells:
@@ -1045,16 +1079,18 @@ def fit_cells(
 
     groups: dict[bytes, list[int]] = {}
     for i, c in enumerate(cells):
-        groups.setdefault(_group_key(c.x) + _group_key(c.weight), []).append(i)
+        groups.setdefault(_group_key(c.x) + b"|" + _group_key(c.weight), []).append(i)
 
     out: list[CurveFit | None] = [None] * len(cells)
     for idxs in groups.values():
         ref = cells[idxs[0]]
         Y = np.column_stack([cells[i].y for i in idxs])
-        fits = fam.fit_batch(ref.x, Y, weights=ref.weight)
-        for slot, fit in zip(idxs, fits):
+        for slot, fit in zip(idxs, fam.fit_batch(ref.x, Y, weights=ref.weight)):
             out[slot] = fit
-    return [f for f in out if f is not None]
+    result = [f for f in out if f is not None]
+    if len(result) != len(cells):  # pragma: no cover - defensive
+        raise RuntimeError("batched fitting dropped a cell")
+    return result
 
 
 def fit_all_families(
