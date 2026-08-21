@@ -1,0 +1,35 @@
+experiment: p4_slack
+seed: 414
+tag: p4.1-estimator-repair-v4
+notes: "Fresh condition-level split; preserves and excludes the failed v3 held-out condition"
+seeds: [414, 415, 416]
+pilot_seeds: [414, 415]
+eval_seeds: [416]
+preregistration:
+  estimand: "Coverage of a condition-calibrated recovery-value surrogate against fresh held-out exact replanning labels"
+  primary_hypothesis: "The frozen v4 surrogate covers at least 90% of fresh held-out exact labels, with at least 80% of conditions attaining 90% state coverage and nonvacuous width"
+  non_claim: "Estimator calibration is not recovery-slack policy improvement, robustness to new environment classes, or a safety certificate"
+theory:
+  proposal_version: "2.1-p4.1-estimator-v4"
+  theory_id: "spec-7.1-7.6"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p4.1
+  estimator_version: v4-condition-conformal
+  q: 0.25
+  margin: 1.0
+  v_fail: -1.0
+  replan_horizon: 8
+  calibration_alpha: 0.1
+  state_coverage: 0.9
+  minimum_coverage: 0.9
+  minimum_condition_success_fraction: 0.8
+  maximum_width_fraction: 0.5
+  condition_lengths: [4, 5, 6, 7, 8, 9, 10]
+  condition_slips: [0.08, 0.14, 0.22, 0.28]
+  condition_horizons: [5, 7, 9, 11]
+  condition_split_seed: 4417
+  train_fraction: 0.5
+  calibration_fraction: 0.25

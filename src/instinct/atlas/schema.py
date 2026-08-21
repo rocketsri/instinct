@@ -9,18 +9,15 @@ produces rows; the curve fitting, transfer tests and kill harness consume them
 and never touch a rollout. Pinning the schema here means a change to what gets
 measured shows up as a schema change rather than as a silently misread column.
 
-The invariant that matters is the telescoping identity
+The invariant that matters is the frozen-specification identity
 
-    sigma == G_plan + R_intermediate - L_arrival - L_wait - C_hw + eps_cross
+    sigma == G_plan + R_intermediate - L_arrival - L_wait - C_hw
+             + L_base_delay + epsilon_id
 
-which holds *by construction* because the terms are a telescoping chain over
-adjacent counterfactual arms, not five independent measurements that happen to
-add up. ``eps_cross`` is therefore not a bucket: in the exact arm it collapses to
-exactly one identified quantity, the cost the *base* arm pays for its own delay,
-and it is exactly zero whenever the base budget lands immediately. In a sampled
-cell it additionally carries estimation noise, and a cell where it grows
-comparable to the budget effect is a cell whose decomposition cannot be trusted —
-one of P1's stated kill conditions. :func:`validate_frame` is not optional.
+which holds *by construction*. ``L_base_delay`` is the identified cost the base
+arm pays for its own delay. ``epsilon_id`` is only the reconstruction residual.
+Conflating the two was an F0 bug because a physical base-delay cost could be
+misreported as measurement error. :func:`validate_frame` checks them separately.
 
 A correction to the proposal's decomposition is baked into these names, and it
 is a finding rather than a bookkeeping choice.
@@ -33,12 +30,10 @@ quantity is the plain **discounting** cost of waiting. Everything after a delay
 of ``d`` ticks is worth ``gamma**d`` of what it would have been, whether or not
 anything unrecoverable happened, and no listed term carries it.
 
-So the identity here uses ``L_wait`` -- the entire cost of having waited, net of
-what the reflex earned back -- while ``L_irreversible`` keeps the proposal's
-meaning as a separately measured sub-component sitting *outside* the identity:
-the damage surviving when both arms are handed an optimal, zero-latency future
-from the handoff onward. ``L_wait - L_irreversible`` is the recoverable
-opportunity cost.
+So the identity here uses ``L_wait`` -- the entire return cost of having waited,
+net of what the reflex earned back. ``L_irreversible`` is a separate matched-time
+excess failure probability. It has probability units and is never subtracted
+from a return term or interpreted as a signed handoff-value difference.
 
 Reading ``L_wait`` as unrecoverable damage is the mistake to avoid. It is large
 in every environment, including ones with no absorbing states at all.
@@ -59,7 +54,8 @@ DECOMPOSITION_TERMS: dict[str, int] = {
     "L_arrival": -1,
     "L_wait": -1,
     "C_hw": -1,
-    "eps_cross": +1,
+    "L_base_delay": +1,
+    "epsilon_id": +1,
 }
 
 
@@ -88,9 +84,10 @@ class AtlasRow:
     R_intermediate: float
     L_arrival: float
     L_wait: float  # whole cost of waiting, net of reflex earnings
-    L_irreversible: float  # the part no later planning could recover
+    L_irreversible: float  # matched-time excess failure probability; outside identity
     C_hw: float
-    eps_cross: float
+    L_base_delay: float
+    epsilon_id: float
     sigma: float
 
     # -- provenance -------------------------------------------------------
@@ -120,7 +117,7 @@ def validate_frame(df: pd.DataFrame, *, tol: float = 1e-9) -> None:
 
     ``tol`` applies to the exact rows only. Sampled rows carry estimation noise
     by nature, so the identity is enforced where it must hold exactly and merely
-    recorded elsewhere — ``eps_cross`` is the place that noise is meant to show
+    recorded elsewhere — ``epsilon_id`` is the place that noise is meant to show
     up, and hiding it would defeat its purpose.
     """
     missing = set(ATLAS_COLUMNS) - set(df.columns)

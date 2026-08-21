@@ -29,9 +29,9 @@ The terms form a **telescoping chain** between adjacent counterfactual arms,
 
     base -> instant(base) -> instant(k) -> fresh(k) -> actual(k)
 
-so they sum exactly rather than approximately, and ``eps_cross`` collapses to a
-single identified quantity: the base arm's own delay cost, which is exactly zero
-whenever the base budget is cheap enough to land immediately.
+so they sum exactly rather than approximately. The base arm's own delay cost is
+reported explicitly as ``L_base_delay``; only the remaining numerical
+reconstruction residual is ``epsilon_id``.
 
 A correction to the proposal, found empirically. Its five terms were originally
 measured independently here, and nothing forced them to add up -- the residual
@@ -46,10 +46,10 @@ with genuinely unrecoverable damage. Those are different things and P1 needs
 them apart, so the proposal's actual quantity is measured separately as
 
 ``L_irreversible``
-    the gap surviving when both arms are handed an *optimal, instantaneous*
-    future from the handoff state onward. Damage that outlives unlimited future
-    planning is unrecoverable by definition; ``L_wait - L_irreversible`` is the
-    recoverable opportunity cost of the delay.
+    the matched-time excess probability of reaching an explicitly declared
+    failure state while the longer reflex prefix runs, against a counterfactual
+    that switches to the safest continuation after the base delay. It is a
+    probability diagnostic, not a signed handoff-value difference.
 
 ``L_irreversible`` sits outside the identity on purpose. It is a measurement of
 a sub-component, not a fifth way to make the books balance, and it is the term
@@ -82,9 +82,9 @@ IntArray = npt.NDArray[np.int64]
 class Decomposition:
     """The decomposition at one budget, for every start state at once.
 
-    Every field is a ``(n_states,)`` array in return units. Return units are the
-    only currency used: ratios near a small denominator are exactly how a
-    harmless rank flip gets reported as a catastrophe.
+    Every field is a ``(n_states,)`` array. Identity terms are in return units;
+    ``L_irreversible`` is explicitly a failure-probability diagnostic outside
+    that identity.
     """
 
     budget: int
@@ -98,53 +98,61 @@ class Decomposition:
     L_arrival: FloatArray
     L_wait: FloatArray
     C_hw: FloatArray
-    eps_cross: FloatArray
+    epsilon_id: FloatArray
     sigma: FloatArray
-    # Outside the identity, and the proposal's actual L_irreversible: the part
-    # of L_wait that no future planning could have recovered. The remainder is
-    # discounting and opportunity cost.
+    # Outside the return-unit identity: matched-time excess failure probability.
     L_irreversible: FloatArray
-    # The one quantity eps_cross collapses to: what the *base* arm loses to its
-    # own delay. Exposed so the residual is an identified term rather than a
-    # bucket, and so a test can assert eps_cross is nothing else.
+    # The identified cost the base arm loses to its own delay.
     L_base_delay: FloatArray
 
     def max_residual(self) -> float:
-        return float(np.max(np.abs(self.eps_cross)))
+        return float(np.max(np.abs(self.epsilon_id)))
 
-    def recoverable_share(self) -> FloatArray:
-        """How much of the wait's cost later planning could in principle undo."""
-        return self.L_wait - self.L_irreversible
-
+    @property
+    def eps_cross(self) -> FloatArray:
+        """Compatibility alias; new artifacts use ``epsilon_id``."""
+        return self.epsilon_id
 
 def _reflex_reward(mdp: TabularMDP, reflex: IntArray, delay: int) -> FloatArray:
     """Discounted reward the reflex banks over ``delay`` ticks, per start state."""
     return mdp.reflex_phase(reflex, delay).offset
 
 
-def _optimal_handoff(
-    mdp: TabularMDP, reflex: IntArray, delay: int, V_star: FloatArray
+def _matched_failure_delta(
+    mdp: TabularMDP,
+    reflex: IntArray,
+    *,
+    base_delay: int,
+    delay: int,
 ) -> FloatArray:
-    """**Undiscounted** expected optimal value at the handoff state.
+    """Matched-time failure-risk difference for the irreversibility diagnostic.
 
-    The reflex runs for ``delay`` ticks and an oracle then takes over with
-    unlimited budget and no latency. What survives that most generous
-    continuation is damage planning cannot undo.
-
-    The discount factor is divided back out, and that is the whole point.
-    ``reflex_phase(...).kernel`` is ``gamma**delay * P_mu**delay``, so comparing
-    two delays with it in place mostly compares ``gamma**d1`` against
-    ``gamma**d2`` — pure time preference. An earlier version left it in and duly
-    reported ~4.9 units of "unrecoverable damage" in an environment with no
-    absorbing states at all. Dividing it out makes this measure *where the reflex
-    left you*, independent of *when* it left you there, which is the only version
-    of the question that distinguishes a pit from a head start.
+    At ``max(delay, base_delay)``, compare continuing the reflex with switching
+    from the reflex to the optimal policy after ``base_delay``. Exact failure
+    semantics must be declared by the MDP; goals are not silently counted as
+    failures merely because they are terminal.
     """
-    kernel = mdp.reflex_phase(reflex, delay).kernel
-    discount = mdp.gamma**delay
-    if discount < 1e-300:  # pathological only; delays in the sweep are small
+    failure = mdp.failure
+    if failure is None or not np.any(failure):
         return np.zeros(mdp.n_states)
-    return (kernel / discount) @ V_star
+    matched_delay = max(delay, base_delay)
+    actual = mdp.reflex_phase(reflex, matched_delay)
+    prefix_steps = min(base_delay, matched_delay)
+    discount = mdp.gamma**matched_delay
+    if discount < 1e-300:
+        return np.zeros(mdp.n_states)
+    target = failure.astype(np.float64)
+    # Exact finite-horizon minimum failure probability after the common reflex
+    # prefix. This counterfactual is matched in time and does not use reward as
+    # a proxy for reachability.
+    remaining_risk = target.copy()
+    for _ in range(matched_delay - prefix_steps):
+        remaining_risk = (mdp.P @ remaining_risk).min(axis=1)
+    prefix = mdp.reflex_phase(reflex, prefix_steps)
+    prefix_discount = mdp.gamma**prefix_steps
+    counterfactual_risk = (prefix.kernel @ remaining_risk) / max(prefix_discount, 1e-300)
+    actual_risk = (actual.kernel @ target) / discount
+    return actual_risk - counterfactual_risk
 
 
 def decompose_exact(
@@ -168,8 +176,9 @@ def decompose_exact(
     by construction rather than by spending seeds on it.
     """
     planner = planner or ExactLookaheadPlanner(mdp)
+    solved_v, _, _ = mdp.value_iteration()
     if V_star is None:
-        V_star, _, _ = mdp.value_iteration()
+        V_star = solved_v
 
     delay = timing.delay_ticks(budget)
     base_delay = timing.delay_ticks(base_budget)
@@ -210,22 +219,20 @@ def decompose_exact(
         mdp.n_states, cost_per_simulation * float(budget - base_budget), dtype=np.float64
     )
 
-    # Measured independently, and deliberately not part of the identity: the gap
-    # that survives when both arms get an optimal, zero-latency future from the
-    # handoff onward. What planning cannot undo is what "irreversible" should
-    # mean, and in an environment with no absorbing states this must be ~0 even
-    # though L_irreversible is large.
-    L_irreversible = _optimal_handoff(mdp, reflex, base_delay, V_star) - _optimal_handoff(
-        mdp, reflex, delay, V_star
+    # Separate from the identity and evaluated at a common time. A signed
+    # handoff-value difference is not labeled damage.
+    L_irreversible = _matched_failure_delta(
+        mdp,
+        reflex,
+        base_delay=base_delay,
+        delay=delay,
     )
 
     L_base_delay = J_instant_base - J_base
 
     sigma = (J_actual - C_hw) - J_base
-    explained = G_plan + R_intermediate - L_arrival - L_wait - C_hw
-    # The one thing the chain leaves over: the base arm's own delay cost. Exactly
-    # zero whenever the base budget lands immediately.
-    eps_cross = sigma - explained
+    explained = G_plan + R_intermediate - L_arrival - L_wait - C_hw + L_base_delay
+    epsilon_id = sigma - explained
 
     return Decomposition(
         budget=budget,
@@ -239,7 +246,7 @@ def decompose_exact(
         L_arrival=L_arrival,
         L_wait=L_wait,
         C_hw=C_hw,
-        eps_cross=eps_cross,
+        epsilon_id=epsilon_id,
         sigma=sigma,
         L_irreversible=L_irreversible,
         L_base_delay=L_base_delay,
@@ -304,7 +311,8 @@ def exact_atlas_rows(
                     L_wait=float(d.L_wait[s]),
                     L_irreversible=float(d.L_irreversible[s]),
                     C_hw=float(d.C_hw[s]),
-                    eps_cross=float(d.eps_cross[s]),
+                    L_base_delay=float(d.L_base_delay[s]),
+                    epsilon_id=float(d.epsilon_id[s]),
                     sigma=float(d.sigma[s]),
                     # The exact arm is a solve, not a sample: one "seed", and the
                     # interval is the point itself.

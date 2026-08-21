@@ -47,14 +47,33 @@ def _synthetic_frame(speed_dependent: bool, *, nu_es=(1.0, 6.0), nu_hs=(1.0,)) -
                 sigma = gain - loss
                 rows.append(
                     dict(
-                        env="synth", reflex="mu0", nu_e=nu_e, nu_h=nu_h, budget=k,
-                        delay=int(nu_e * nu_h * k), staleness=nu_e * nu_h * k,
+                        env="synth",
+                        reflex="mu0",
+                        nu_e=nu_e,
+                        nu_h=nu_h,
+                        budget=k,
+                        delay=int(nu_e * nu_h * k),
+                        staleness=nu_e * nu_h * k,
                         start_state=0,
-                        J_actual=sigma, J_instant=gain, J_fresh=sigma, J_base=0.0,
-                        G_plan=gain, R_intermediate=0.0, L_arrival=loss, L_wait=0.0,
-                        L_irreversible=0.0, C_hw=0.0, eps_cross=0.0, sigma=sigma,
-                        n_seeds=1, ci_lo=sigma, ci_hi=sigma, exact=True,
-                        simulations=k, wall_clock_s=0.0,
+                        J_actual=sigma,
+                        J_instant=gain,
+                        J_fresh=sigma,
+                        J_base=0.0,
+                        G_plan=gain,
+                        R_intermediate=0.0,
+                        L_arrival=loss,
+                        L_wait=0.0,
+                        L_irreversible=0.0,
+                        C_hw=0.0,
+                        L_base_delay=0.0,
+                        epsilon_id=0.0,
+                        sigma=sigma,
+                        n_seeds=1,
+                        ci_lo=sigma,
+                        ci_hi=sigma,
+                        exact=True,
+                        simulations=k,
+                        wall_clock_s=0.0,
                     )
                 )
     return pd.DataFrame(rows, columns=ATLAS_COLUMNS)
@@ -102,9 +121,7 @@ def test_a_surface_that_depends_on_speed_does_not() -> None:
     result = run_transfer(cells, axis="speed", family="pwlinear3")
     assert result is not None
     # The optimal budgets genuinely differ between the two speeds.
-    per_speed = {
-        c.key.nu_e: int(c.budget[np.argmax(c.y)]) for c in cells
-    }
+    per_speed = {c.key.nu_e: int(c.budget[np.argmax(c.y)]) for c in cells}
     assert len(set(per_speed.values())) > 1, f"precondition failed: {per_speed}"
     assert result.mean_budget_regret > 0.0, result.summary()
 
@@ -139,21 +156,94 @@ def test_collapse_is_testable_when_products_coincide() -> None:
             sigma = 1.0 - np.exp(-k / 6.0) - 0.02 * nu_e * nu_h * k
             rows.append(
                 dict(
-                    env="synth", reflex="mu0", nu_e=nu_e, nu_h=nu_h, budget=k,
-                    delay=int(nu_e * nu_h * k), staleness=nu_e * nu_h * k, start_state=0,
-                    J_actual=sigma, J_instant=0.0, J_fresh=sigma, J_base=0.0,
-                    G_plan=0.0, R_intermediate=0.0, L_arrival=0.0, L_wait=0.0,
-                    L_irreversible=0.0, C_hw=0.0, eps_cross=0.0, sigma=sigma,
-                    n_seeds=1, ci_lo=sigma, ci_hi=sigma, exact=True,
-                    simulations=k, wall_clock_s=0.0,
+                    env="synth",
+                    reflex="mu0",
+                    nu_e=nu_e,
+                    nu_h=nu_h,
+                    budget=k,
+                    delay=int(nu_e * nu_h * k),
+                    staleness=nu_e * nu_h * k,
+                    start_state=0,
+                    J_actual=sigma,
+                    J_instant=0.0,
+                    J_fresh=sigma,
+                    J_base=0.0,
+                    G_plan=0.0,
+                    R_intermediate=0.0,
+                    L_arrival=0.0,
+                    L_wait=0.0,
+                    L_irreversible=0.0,
+                    C_hw=0.0,
+                    L_base_delay=0.0,
+                    epsilon_id=0.0,
+                    sigma=sigma,
+                    n_seeds=1,
+                    ci_lo=sigma,
+                    ci_hi=sigma,
+                    exact=True,
+                    simulations=k,
+                    wall_clock_s=0.0,
                 )
             )
     result = collapse_test(pd.DataFrame(rows, columns=ATLAS_COLUMNS), family="pwlinear3")
     assert result is not None
     # This surface depends only on the product, so the collapse should hold.
     # pwlinear3 is not exact on this shape, so judge against the effect size.
-    effect = float(max(c.effect_size() for c in cells_from_frame(pd.DataFrame(rows, columns=ATLAS_COLUMNS), x='budget')))
+    effect = float(
+        max(
+            c.effect_size()
+            for c in cells_from_frame(pd.DataFrame(rows, columns=ATLAS_COLUMNS), x="budget")
+        )
+    )
     assert result.mean_budget_regret < 0.1 * effect, result.summary()
+
+
+def test_collapse_uses_all_pairs_and_detects_hardware_quality_noncollapse() -> None:
+    rows = []
+    for nu_e, nu_h in ((1.0, 2.0), (2.0, 1.0), (1.0, 3.0), (3.0, 1.0)):
+        for k in BUDGETS:
+            base = 1.0 - np.exp(-k / 6.0) - 0.02 * nu_e * nu_h * k
+            # Same algebraic speed-latency product, different planner quality.
+            quality = 0.04 * k if nu_h > 1.0 else -0.002 * k**1.5
+            sigma = base + quality
+            rows.append(
+                dict(
+                    env="synth",
+                    reflex="mu0",
+                    nu_e=nu_e,
+                    nu_h=nu_h,
+                    budget=k,
+                    delay=int(nu_e * nu_h * k),
+                    staleness=nu_e * nu_h * k,
+                    start_state=0,
+                    J_actual=sigma,
+                    J_instant=0.0,
+                    J_fresh=sigma,
+                    J_base=0.0,
+                    G_plan=0.0,
+                    R_intermediate=0.0,
+                    L_arrival=0.0,
+                    L_wait=0.0,
+                    L_irreversible=0.0,
+                    C_hw=0.0,
+                    L_base_delay=0.0,
+                    epsilon_id=0.0,
+                    sigma=sigma,
+                    n_seeds=1,
+                    ci_lo=sigma,
+                    ci_hi=sigma,
+                    exact=True,
+                    simulations=k,
+                    wall_clock_s=0.0,
+                )
+            )
+    frame = pd.DataFrame(rows, columns=ATLAS_COLUMNS)
+    forward = collapse_test(frame, family="pwlinear3")
+    shuffled = collapse_test(frame.sample(frac=1, random_state=4), family="pwlinear3")
+    assert forward is not None and shuffled is not None
+    assert forward.n_cells == 4
+    assert forward.mean_budget_regret > 0
+    assert np.isclose(forward.mean_budget_regret, shuffled.mean_budget_regret)
 
 
 def test_suite_covers_every_axis_and_marks_the_untested_ones() -> None:
@@ -169,13 +259,17 @@ def test_suite_covers_every_axis_and_marks_the_untested_ones() -> None:
 def test_a_good_surface_passes_and_a_bad_one_kills() -> None:
     good = _synthetic_frame(speed_dependent=False)
     cells = cells_from_frame(good, x="budget")
-    report = evaluate_kill_conditions(good, select_families(cells), transfer_suite(good, family="pwlinear3"))
+    report = evaluate_kill_conditions(
+        good, select_families(cells), transfer_suite(good, family="pwlinear3")
+    )
     speed = next(v for v in report.verdicts if "speed" in v.name)
     assert speed.status == PASS, speed.detail
 
     bad = _synthetic_frame(speed_dependent=True)
     bad_cells = cells_from_frame(bad, x="budget")
-    bad_report = evaluate_kill_conditions(bad, select_families(bad_cells), transfer_suite(bad, family="pwlinear3"))
+    bad_report = evaluate_kill_conditions(
+        bad, select_families(bad_cells), transfer_suite(bad, family="pwlinear3")
+    )
     bad_speed = next(v for v in bad_report.verdicts if "speed" in v.name)
     assert bad_speed.status == KILL, bad_speed.detail
     assert bad_report.any_tripped
@@ -186,7 +280,9 @@ def test_an_untested_condition_is_inconclusive_not_passed() -> None:
     """The single most misleading thing this module could do is call it a pass."""
     frame = _synthetic_frame(False)
     cells = cells_from_frame(frame, x="budget")
-    report = evaluate_kill_conditions(frame, select_families(cells), transfer_suite(frame, family="pwlinear3"))
+    report = evaluate_kill_conditions(
+        frame, select_families(cells), transfer_suite(frame, family="pwlinear3")
+    )
     reflex = next(v for v in report.verdicts if "reflex" in v.name)
     assert reflex.status == INCONCLUSIVE
     assert not reflex.tripped
@@ -197,25 +293,34 @@ def test_the_report_leads_with_the_verdict_table() -> None:
     frame = _synthetic_frame(speed_dependent=True)
     cells = cells_from_frame(frame, x="budget")
     md = render_markdown(
-        evaluate_kill_conditions(frame, select_families(cells), transfer_suite(frame, family="pwlinear3"))
+        evaluate_kill_conditions(
+            frame, select_families(cells), transfer_suite(frame, family="pwlinear3")
+        )
     )
     assert md.index("KILL") < md.index("| Condition |")
     assert "failed its own stopping rule" in md
 
 
 def test_kill_harness_runs_on_a_real_exact_sweep() -> None:
-    """End to end on the tabular arm, where eps_cross is machine epsilon."""
+    """End to end on the tabular arm, where epsilon_id is machine epsilon."""
     mdp = chase_chain(n_positions=5, gamma=0.9, drift=0.4)
     reflex = np.ones(mdp.n_states, dtype=np.int64)
     rows = []
     for nu_e in (1.0, 2.0):
         rows += exact_atlas_rows(
-            mdp, env_name="chase", reflex=reflex, reflex_name="stay",
-            budgets=BUDGETS, timing=Timing(nu_e=nu_e, nu_h=0.5), states=[0, 7],
+            mdp,
+            env_name="chase",
+            reflex=reflex,
+            reflex_name="stay",
+            budgets=BUDGETS,
+            timing=Timing(nu_e=nu_e, nu_h=0.5),
+            states=[0, 7],
         )
     frame = to_frame(rows)
     cells = cells_from_frame(frame, x="budget")
-    report = evaluate_kill_conditions(frame, select_families(cells), transfer_suite(frame, family="pwlinear3"))
+    report = evaluate_kill_conditions(
+        frame, select_families(cells), transfer_suite(frame, family="pwlinear3")
+    )
 
     noise = next(v for v in report.verdicts if "decomposition" in v.name)
     assert noise.status == PASS, noise.detail

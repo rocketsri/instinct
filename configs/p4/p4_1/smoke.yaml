@@ -1,0 +1,23 @@
+experiment: p4_slack
+seed: 411
+seeds: [411, 412, 413]
+pilot_seeds: [411, 412]
+eval_seeds: [413]
+preregistration:
+  estimand: "Coverage of a frozen recovery-value surrogate against held-out exact replanning labels"
+  primary_hypothesis: "A train/calibration-only surrogate covers at least 90% of held-out exact recovery values"
+  non_claim: "Surrogate calibration alone is not recovery-slack policy improvement or a safety certificate"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-7.1-7.6"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p4.1
+  q: 0.25
+  margin: 1.0
+  v_fail: -1.0
+  replan_horizon: 8
+  calibration_alpha: 0.1
+  minimum_coverage: 0.9

@@ -1,0 +1,39 @@
+experiment: p1_atlas
+seed: 20260817
+tag: p1.1-cpu-recovery1
+notes: "Fresh failure-rich continuous CPU recovery; official FTT and T4 remain external preflights"
+preregistration:
+  estimand: "Recurring net-return budget regret and the unchanged matched one-handoff Sigma identity on fresh whole contexts"
+  primary_hypothesis: "On fresh failure-rich held-out speed-latency cells, M4 lowers context regret versus M0, M2, deployable M5 lookup, and FTT-lite"
+  non_claim: "The CPU adapter is not official FTT equivalence, T4 transfer, cross-family universality, or a universal product-collapse law"
+theory:
+  proposal_version: "2.1-p1.1-r1"
+  theory_id: "spec-4.1-4.9"
+  amendment_id: "portfolio-2.1+p1-1.1"
+seeds: [301, 302, 303, 304, 305, 306, 401, 402, 403, 404, 405, 406, 407, 408]
+pilot_seeds: [301, 302, 303, 304, 305, 306]
+eval_seeds: [401, 402, 403, 404, 405, 406, 407, 408]
+compute:
+  run_class: cpu
+  cpu_hours_max: 2
+resume:
+  checkpoint_every_minutes: 10
+  allow_resume: true
+params:
+  stage: p1.1-r1
+  families: [pursuit, tetris, control]
+  reflexes: [hold, greedy, distilled]
+  budgets: [1, 2, 3, 4, 5, 6, 7, 8]
+  event_rates_hz: [8000.0, 30000.0, 120000.0]
+  runtime_work_scales: [2, 8, 24]
+  n_oracle: 6
+  n_regret: 8
+  horizon: 24
+  handoff_horizon: 20
+  gamma: 0.97
+  hardware_price_per_s: 0.01
+  flat_tolerance: 0.01
+  failure_rich_control: true
+  ftt_source: /private/tmp/instinct-p1-external/realtime-rl-code
+  ftt_checkpoint: /private/tmp/instinct-p1-external/tetris-gate.pkl
+  t4_timing_artifact: /private/tmp/instinct-p1-external/t4-timing-cells.json

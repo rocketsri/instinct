@@ -1,0 +1,20 @@
+experiment: p4_slack
+seed: 401
+seeds: [401, 402, 403, 404]
+pilot_seeds: [401, 402]
+eval_seeds: [403, 404]
+preregistration:
+  estimand: "Lower-tail quantile of exact replanning value above failure"
+  primary_hypothesis: "A strict interior progress-recoverability frontier survives matched verification baselines"
+  non_claim: "The exact-label construction is not a learned surrogate or a safety certificate"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-7.1-7.6"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: cpu}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  q: 0.25
+  margin: 1.0
+  v_fail: -1.0
+  replan_horizon: 12

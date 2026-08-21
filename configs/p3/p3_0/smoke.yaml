@@ -1,0 +1,13 @@
+experiment: p3_codesign
+seed: 301
+seeds: [301, 302]
+pilot_seeds: [301]
+eval_seeds: [302]
+preregistration:
+  estimand: "One-interval planner-aware reflex objective from section 6.2"
+  primary_hypothesis: "Exact enumeration recovers hold, greedy, interior, and destructive-reflex optima"
+  non_claim: "Objective expressivity is not evidence that learned co-design beats concurrent-control baselines"
+theory: {proposal_version: "2.1", theory_id: "spec-6.1-6.8", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params: {}

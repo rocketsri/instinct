@@ -1,0 +1,30 @@
+experiment: p6_certification
+seed: 641
+seeds: [631, 632, 641]
+pilot_seeds: [631, 632]
+eval_seeds: [641]
+preregistration:
+  estimand: "Largest-scale true-environment action-prefix gain of a shift-robust CSA specialization over the strongest robust declared-exit union"
+  primary_hypothesis: "At 8192 trajectories and 8192 declared exits, the shift-robust CSA specialization is valid and nonvacuous in every fresh shift family, gains at least 0.3 selected actions over the robust union, and reduces certificate-only latency by at least 10x"
+  non_claim: "A finite-grid nested-Bernoulli specialization is not a reproduction of general CSA, and composing AVCRC with paired discordance is not the paper's importance-weighted shift theorem"
+theory: {proposal_version: "2.1-p6.3-v1", theory_id: "spec-9.1-9.6-p6.3-frontier", amendment_id: "none"}
+compute: {run_class: cpu, cpu_hours_max: 2.0}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p6.3
+  confidence_delta: 0.05
+  episode_risk: 0.2
+  false_certification_tolerance: 0.05
+  gain_actions: 0.3
+  latency_speedup: 10.0
+  csa_bet_margin: 0.02
+  repetitions: 96
+  sample_sizes: [512, 1024, 2048, 4096, 8192]
+  declared_looks: 8192
+  pilot_model_samples: 5000
+  nominal_model_risks: [0.015, 0.03, 0.045, 0.06, 0.075, 0.09, 0.105, 0.12, 0.135, 0.145, 0.155, 0.165, 0.175, 0.185, 0.195, 0.21]
+  shift_families:
+    - {name: stable, true_risks: [0.015, 0.03, 0.045, 0.06, 0.075, 0.09, 0.105, 0.12, 0.135, 0.145, 0.155, 0.165, 0.175, 0.185, 0.195, 0.21]}
+    - {name: diffuse_shift, true_risks: [0.02, 0.036, 0.052, 0.068, 0.084, 0.1, 0.116, 0.132, 0.148, 0.159, 0.17, 0.181, 0.192, 0.203, 0.214, 0.23]}
+    - {name: late_cliff, true_risks: [0.015, 0.03, 0.045, 0.06, 0.075, 0.09, 0.105, 0.12, 0.135, 0.145, 0.16, 0.18, 0.205, 0.25, 0.32, 0.4]}
+    - {name: early_shift, true_risks: [0.035, 0.052, 0.069, 0.086, 0.103, 0.12, 0.137, 0.154, 0.17, 0.18, 0.19, 0.2, 0.21, 0.22, 0.23, 0.245]}

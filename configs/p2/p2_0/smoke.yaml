@@ -1,0 +1,13 @@
+experiment: p2_harmful_write
+seed: 201
+seeds: [201, 202]
+pilot_seeds: [201]
+eval_seeds: [202]
+preregistration:
+  estimand: "Multi-horizon write utility with separate benefit, damage, and cost"
+  primary_hypothesis: "The offline oracle ranks planted harmful writes below benign writes"
+  non_claim: "Synthetic AUC is not a deployable gate or realistic useful-sparsity result"
+theory: {proposal_version: "2.1", theory_id: "spec-5.1-5.10", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params: {n_chunks: 24}

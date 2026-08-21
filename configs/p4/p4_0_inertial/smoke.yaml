@@ -1,0 +1,26 @@
+experiment: p4_slack
+seed: 402
+tag: p4.0-inertial-exact
+notes: "Exact 2-D inertial recovery-state gate before an in-domain learned surrogate"
+seeds: [402, 403]
+pilot_seeds: [402]
+eval_seeds: [403]
+preregistration:
+  estimand: "Lower-tail exact replanning slack after velocity impulses in a 2-D inertial obstacle grid"
+  primary_hypothesis: "Exact recovery values separate recoverable from already-unrecoverable legal motion states and support progress without myopic collision"
+  non_claim: "An exact finite-state environment gate is not learned slack training, P4.2 policy evidence, robotics scale, or a safety certificate"
+theory:
+  proposal_version: "2.1-p4.0-inertial-v1"
+  theory_id: "spec-7.1-7.6"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p4.0-inertial
+  width: 4
+  height: 4
+  actuator_slip: 0.1
+  q: 0.25
+  margin: 1.0
+  v_fail: -1.0
+  replan_horizon: 12

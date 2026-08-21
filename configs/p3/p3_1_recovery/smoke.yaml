@@ -1,0 +1,32 @@
+experiment: p3_codesign
+seed: 314
+tag: p3.1-recovery-cycle-1-v4
+notes: "Fresh multi-cell speed-delay recovery; the failed v3 held-out cell remains sealed"
+seeds: [314, 315, 394, 395]
+pilot_seeds: [314, 315]
+eval_seeds: [394, 395]
+preregistration:
+  estimand: "Fresh-cell one-interval return of a delay-and-speed-conditioned advantage reflex under a planner that simulates the same reflex"
+  primary_hypothesis: "The frozen advantage reflex beats every deployable matched-work baseline by at least 0.05 mean return and clears that margin in at least two of three environment/planner cells"
+  non_claim: "This tabular recovery is not recurring P3.2 co-design, a scale result, or evidence that mismatch is always harmful"
+theory:
+  proposal_version: "2.1-p3.1-recovery-v4"
+  theory_id: "spec-6.1-6.8"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p3.1
+  recovery_version: v4-advantage-regression
+  train_speeds: [0.10, 0.30, 0.50]
+  eval_speeds: [0.20, 0.40]
+  train_delays: [1, 2, 4]
+  eval_delays: [3, 5]
+  gamma: 0.9
+  blocks: 2
+  ridge: 0.0001
+  policy_gradient_learning_rate: 0.12
+  frontier_budgets: [1, 2, 4, 8]
+  minimum_mean_gain: 0.05
+  minimum_cell_win_fraction: 0.6666666667
+  minimum_planner_disagreement: 0.02

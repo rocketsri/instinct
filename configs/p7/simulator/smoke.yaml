@@ -1,0 +1,13 @@
+experiment: p7_chunking
+seed: 701
+seeds: [701, 702]
+pilot_seeds: [701]
+eval_seeds: [702]
+preregistration:
+  estimand: "Queue occupancy, age, padding, and serialized utilization for fixed-shape updates"
+  primary_hypothesis: "The simulator preserves fixed shape and owner isolation under bursty admission"
+  non_claim: "Simulator feasibility is not P7.0 GO and says nothing about task quality"
+theory: {proposal_version: "2.1", theory_id: "spec-10.1-10.7", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params: {mode: simulator, buffer_size: 8, max_age: 2.0}

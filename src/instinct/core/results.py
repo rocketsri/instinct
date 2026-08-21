@@ -13,7 +13,7 @@ never an arbitrary ``recorder.table("whatever_i_felt_like")``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -45,13 +45,28 @@ class ResultsWriter:
         self.recorder = recorder
         self.checkpoints = CheckpointStore(run_dir=recorder.run_dir)
 
+    def _theory_fields(self) -> dict[str, str]:
+        theory = getattr(self.recorder.manifest.config, "theory", None)
+        if theory is None or not theory.proposal_version or not theory.theory_id:
+            raise ValueError("run config is missing proposal/theory traceability")
+        return {
+            "proposal_version": str(theory.proposal_version),
+            "theory_id": str(theory.theory_id),
+            "amendment_id": str(theory.amendment_id),
+        }
+
     def event(self, **fields: Any) -> None:
         """Append to ``events.jsonl`` — the required event stream name."""
         self.recorder.event("events", **fields)
 
-    def write_metrics(self, rows: pd.DataFrame | list[Mapping[str, Any]]) -> Path:
+    def write_metrics(self, rows: pd.DataFrame | Sequence[Mapping[str, Any]]) -> Path:
         """Write ``metrics.parquet``. The only sanctioned path to that filename."""
-        return self.recorder.table(METRICS_TABLE_NAME, rows)
+        frame = rows.copy() if isinstance(rows, pd.DataFrame) else pd.DataFrame.from_records(rows)
+        for key, value in self._theory_fields().items():
+            if key in frame and not frame[key].astype(str).eq(value).all():
+                raise ValueError(f"metric rows conflict with configured {key}={value!r}")
+            frame[key] = value
+        return self.recorder.table(METRICS_TABLE_NAME, frame)
 
     def write_verdict(
         self, report: VerdictReport, *, metrics_summary: Mapping[str, Any] | None = None
@@ -63,6 +78,10 @@ class ResultsWriter:
         docstring on why every number in the rendered markdown must trace back
         to a field on the report that also went into ``verdict.json``.
         """
+        trace = self._theory_fields()
+        report.proposal_version = trace["proposal_version"]
+        report.theory_id = trace["theory_id"]
+        report.amendment_id = trace["amendment_id"]
         write_verdict_json(self.recorder.run_dir / "verdict.json", report)
         report_md = render_report_md(
             report, self.recorder.manifest, metrics_summary=metrics_summary

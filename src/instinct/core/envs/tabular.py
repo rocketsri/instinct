@@ -70,9 +70,9 @@ class TabularEnv:
     ) -> StepResult:
         s = state["s"].astype(np.int64)
         a = np.asarray(actions, dtype=np.int64)
-        u = scope.stream("transition").uniform(
-            state.lane_ids, count=1, episode=episode, tick=tick
-        )[:, 0]
+        u = scope.stream("transition").uniform(state.lane_ids, count=1, episode=episode, tick=tick)[
+            :, 0
+        ]
 
         cdf = self._cdf()[s, a]  # (L, S)
         nxt = (u[:, None] >= cdf).sum(axis=1).astype(np.int64)
@@ -139,7 +139,16 @@ def corridor_with_pit(
     terminal[[goal, pit]] = True
     _absorb(P, R, terminal)
 
-    mdp = TabularMDP(P=P, R=R, gamma=gamma, terminal=terminal, name="corridor_with_pit")
+    failure = np.zeros(n_states, dtype=bool)
+    failure[pit] = True
+    mdp = TabularMDP(
+        P=P,
+        R=R,
+        gamma=gamma,
+        terminal=terminal,
+        name="corridor_with_pit",
+        failure=failure,
+    )
     mdp.validate()
     return mdp
 
@@ -176,7 +185,12 @@ def chase_chain(n_positions: int = 6, gamma: float = 0.95, drift: float = 0.3) -
                 R[s, a] = 1.0 if nxt_agent == target else -0.05
 
     mdp = TabularMDP(
-        P=P, R=R, gamma=gamma, terminal=np.zeros(n_states, dtype=bool), name="chase_chain"
+        P=P,
+        R=R,
+        gamma=gamma,
+        terminal=np.zeros(n_states, dtype=bool),
+        name="chase_chain",
+        failure=np.zeros(n_states, dtype=bool),
     )
     mdp.validate()
     return mdp

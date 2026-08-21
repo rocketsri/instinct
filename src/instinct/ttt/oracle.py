@@ -108,6 +108,15 @@ class OracleConfig:
         return self.horizon_weights
 
     def __post_init__(self) -> None:
+        if not self.horizons or any(h <= 0 for h in self.horizons):
+            raise ValueError("horizons must be nonempty and strictly positive")
+        if len(set(self.horizons)) != len(self.horizons):
+            raise ValueError("horizons must be unique")
+        weights = self.weights()
+        if any(w < 0 for w in weights) or not np.isclose(sum(weights), 1.0):
+            raise ValueError("horizon weights must be nonnegative and sum to one")
+        if self.retention_lambda < 0 or self.cost < 0:
+            raise ValueError("retention_lambda and cost must be nonnegative")
         if self.min_forks < 8:
             raise ValueError(
                 f"min_forks={self.min_forks}: measured on the target GPU, 8 forks cost the same "
@@ -217,8 +226,10 @@ def build_plans(
 
     for t in steps:
         fut = future_chunks(stream.chunks, t, cfg.horizons)
-        if not fut:
-            continue  # no future left: the benefit term is undefined, not zero
+        if len(fut) != len(cfg.horizons):
+            # A partial horizon changes the frozen multi-horizon estimand. Late
+            # candidates are excluded instead of silently renormalizing it.
+            continue
         aged = build_aged_set(
             t, ledger, n_items=cfg.n_aged_probes, min_age=cfg.min_age, scope=scope, kind=AGED
         )
@@ -230,7 +241,6 @@ def build_plans(
 
         by_h = dict(zip(cfg.horizons, weights))
         used_h = tuple(h for h, _ in fut)
-        norm = sum(by_h[h] for h in used_h)  # renormalize over horizons that exist
         parts: list[tuple[Tensor, Tensor, FloatArray, FloatArray, FloatArray]] = []
         n_future = 0
         for h, chunk in fut:
@@ -240,7 +250,7 @@ def build_plans(
                 (
                     chunk.keys,
                     chunk.values,
-                    np.full(n, by_h[h] / (norm * n)),
+                    np.full(n, by_h[h] / n),
                     np.zeros(n),
                     np.zeros(n),
                 )
@@ -252,9 +262,7 @@ def build_plans(
         if audit:
             ax, ay = stack_probes(audit)
             n_audit = int(ax.shape[0])
-            parts.append(
-                (ax, ay, np.zeros(n_audit), np.zeros(n_audit), probe_row_weights(audit))
-            )
+            parts.append((ax, ay, np.zeros(n_audit), np.zeros(n_audit), probe_row_weights(audit)))
 
         xs, ys, wb, wd, wa = _stack_plan_inputs(parts)
         plans.append(
@@ -421,6 +429,8 @@ def run_oracle(
     ledger: ProbeLedger,
     plans: Sequence[TimestepPlan] | None = None,
     naive: bool = False,
+    reference_mask: BoolArray | None = None,
+    candidate_timesteps: Sequence[int] | None = None,
 ) -> OracleResult:
     """Score every candidate write along one reference trajectory.
 
@@ -435,6 +445,12 @@ def run_oracle(
     Set ``naive=True`` to route through the one-at-a-time reference
     implementation instead. Same plans, same numbers, ~2G times the forwards.
     """
+    if reference_mask is not None:
+        reference_mask = np.asarray(reference_mask, dtype=bool)
+        if reference_mask.shape != (len(stream),):
+            raise ValueError(
+                f"reference_mask has shape {reference_mask.shape}, expected {(len(stream),)}"
+            )
     scope_states = scope.child("reference-roll")
     state = FastWeights.init(fw_cfg, 1, scope_states)
 
@@ -461,13 +477,20 @@ def run_oracle(
         chunk_cos.append(0.0 if not deltas[:-1] else _cosine(flat, deltas[-2].flat()[0]))
         memory_age.append(float(writes))
         ema = flat.clone() if ema is None else 0.7 * ema + 0.3 * flat
-        if cfg.write_all:
+        should_write = cfg.write_all if reference_mask is None else bool(reference_mask[chunk.t])
+        if should_write:
             state.apply_(delta)
             writes += 1
 
     # 2. Draw the evaluation data. Charging happens exactly once, here.
     if plans is None:
-        plans = build_plans(stream, ledger, cfg, scope.child("plans"))
+        plans = build_plans(
+            stream,
+            ledger,
+            cfg,
+            scope.child("plans"),
+            timesteps=candidate_timesteps,
+        )
     if not plans:
         raise ValueError(
             "no scorable timesteps: the stream is too short for these horizons/min_age"
@@ -513,9 +536,17 @@ def run_oracle(
         n_forward_calls=scored.n_forward_calls,
         probe_rows_spent=ledger.usage_report().rows_evaluated,
         notes={
-            "reference_policy": "write_all" if cfg.write_all else "write_none",
+            "reference_policy": (
+                "custom_mask"
+                if reference_mask is not None
+                else ("write_all" if cfg.write_all else "write_none")
+            ),
+            "reference_writes": writes,
             "stream": stream.name,
             "n_timesteps_skipped": len(stream) - len(plans),
+            "max_horizon": max(cfg.horizons),
+            "horizons": cfg.horizons,
+            "full_horizons_only": True,
         },
     )
 

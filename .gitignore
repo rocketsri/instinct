@@ -24,3 +24,6 @@ cache/
 
 .DS_Store
 .env
+
+# Claude Code agent worktrees (other branches' checkouts, not project content)
+.claude/

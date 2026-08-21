@@ -24,6 +24,11 @@ DUMMY_CONFIG: dict = {
         "primary_hypothesis": "the fixture always reaches its configured total_steps",
         "non_claim": "nothing about any real proposal",
     },
+    "theory": {
+        "proposal_version": "fixture-v1",
+        "theory_id": "tests/fixtures/dummy_proposal",
+        "amendment_id": "none",
+    },
     "compute": {"run_class": "smoke"},
     "resume": {"checkpoint_every_minutes": 15.0, "allow_resume": True},
     "params": {"total_steps": 5},

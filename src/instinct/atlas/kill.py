@@ -209,21 +209,10 @@ def evaluate_kill_conditions(
         )
 
     # 4. The decomposition must be sharper than the effect it decomposes.
-    if df.empty or "eps_cross" not in df:
+    if df.empty or "epsilon_id" not in df:
         verdicts.append(Verdict("decomposition resolves the effect", INCONCLUSIVE, "no rows"))
     else:
-        # The noise is the IDENTITY RESIDUAL, not eps_cross itself.
-        #
-        # eps_cross is an identified term -- the base arm's own delay cost -- and
-        # it is legitimately large whenever the base budget does not land
-        # immediately. Measured on a real exact sweep it reached 5.9 against a
-        # 4.6 budget effect, which would have tripped this condition on a
-        # decomposition that is exact to machine precision. Treating a named
-        # quantity as noise because it sits in the residual slot is precisely
-        # the confusion this decomposition was restructured to avoid.
-        #
-        # What the condition actually asks is whether the terms fail to
-        # reconstruct sigma by more than the effect being measured.
+        # The noise is the explicit identity residual, never L_base_delay.
         from instinct.atlas.schema import DECOMPOSITION_TERMS
 
         reconstructed = sum(sign * df[t] for t, sign in DECOMPOSITION_TERMS.items())
@@ -232,7 +221,7 @@ def evaluate_kill_conditions(
             Verdict(
                 "decomposition resolves the effect",
                 PASS if noise <= tolerance * effect_scale else KILL,
-                f"worst |eps_cross| {noise:.3e} against a {effect_scale:.4f} budget effect",
+                f"worst |epsilon_id| {noise:.3e} against a {effect_scale:.4f} budget effect",
                 value=noise,
                 threshold=tolerance * effect_scale,
             )

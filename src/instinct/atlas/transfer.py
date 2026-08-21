@@ -254,39 +254,57 @@ def collapse_test(df: pd.DataFrame, *, family: str = "exponential") -> TransferR
         product = round(cell.key.nu_e * cell.key.nu_h, 9)
         by_product.setdefault(product, []).append(cell)
 
+    regrets: list[float] = []
+    within_regrets: list[float] = []
+    taus: list[float] = []
+    hits: list[bool] = []
+    effects: list[float] = []
+    comparisons: list[str] = []
+
+    def context(cell: CurveData) -> tuple[str, str, int]:
+        return cell.key.env, cell.key.reflex, cell.key.start_state
+
     for product, group in sorted(by_product.items()):
         pairs = {(c.key.nu_e, c.key.nu_h) for c in group}
         if len(pairs) < 2 or product == 0.0:
             continue
         ordered = sorted(pairs)
-        train = [c for c in group if (c.key.nu_e, c.key.nu_h) == ordered[0]]
-        test = [c for c in group if (c.key.nu_e, c.key.nu_h) == ordered[1]]
-        source_fits = fit_cells(family, train)
-        scores = [
-            float(np.mean([_score_against(f, c)[0] for f in source_fits])) for c in test
-        ]
-        own = fit_cells(family, test)
-        within = float(np.mean([_score_against(f, c)[0] for f, c in zip(own, test)]))
-        taus = [
-            float(np.mean([_score_against(f, c)[1] for f in source_fits])) for c in test
-        ]
-        hits = [
-            bool(np.mean([_score_against(f, c)[2] for f in source_fits]) > 0.5) for c in test
-        ]
-        return TransferResult(
-            axis="collapse",
-            family=family,
-            fit_on=str(ordered[0]),
-            tested_on=str(ordered[1]),
-            n_cells=len(test),
-            mean_budget_regret=float(np.mean(scores)),
-            max_budget_regret=float(np.max(scores)),
-            mean_kendall_tau=float(np.nanmean(taus)) if taus else float("nan"),
-            exact_argmax_rate=float(np.mean(hits)),
-            within_cell_regret=within,
-            per_cell=scores,
-        )
-    return None
+        for source_pair in ordered:
+            source = {context(c): c for c in group if (c.key.nu_e, c.key.nu_h) == source_pair}
+            for target_pair in ordered:
+                if target_pair == source_pair:
+                    continue
+                target = {context(c): c for c in group if (c.key.nu_e, c.key.nu_h) == target_pair}
+                shared = sorted(source.keys() & target.keys())
+                for key in shared:
+                    source_cell, target_cell = source[key], target[key]
+                    fit = fit_cells(family, [source_cell])[0]
+                    regret, tau, hit = _score_against(fit, target_cell)
+                    own_fit = fit_cells(family, [target_cell])[0]
+                    within, _, _ = _score_against(own_fit, target_cell)
+                    regrets.append(regret)
+                    within_regrets.append(within)
+                    taus.append(tau)
+                    hits.append(hit)
+                    effects.append(target_cell.effect_size())
+                    comparisons.append(f"{source_pair}->{target_pair}")
+
+    if not regrets:
+        return None
+    return TransferResult(
+        axis="collapse",
+        family=family,
+        fit_on="all equal-product pairs",
+        tested_on=", ".join(sorted(set(comparisons))),
+        n_cells=len(regrets),
+        mean_budget_regret=float(np.mean(regrets)),
+        max_budget_regret=float(np.max(regrets)),
+        mean_kendall_tau=float(np.nanmean(taus)),
+        exact_argmax_rate=float(np.mean(hits)),
+        within_cell_regret=float(np.mean(within_regrets)),
+        target_effect=float(np.median(effects)),
+        per_cell=regrets,
+    )
 
 
 def transfer_suite(

@@ -1,0 +1,29 @@
+experiment: p4_slack
+seed: 472
+tag: p4.2-open-loop-inertial
+notes: "Fresh diagonal-impulse policy slice using the locked v2 inertial estimator"
+seeds: [472, 473, 474]
+pilot_seeds: [472, 473]
+eval_seeds: [474]
+preregistration:
+  estimand: "Held-out diagonal-impulse goal-probability gain of slack-regularized chunks at matched replanning calls"
+  primary_hypothesis: "Slack-regularized open-loop chunks improve held-out success by at least one percentage point without more than five points of clean progress loss"
+  non_claim: "An enumerated finite-state policy slice is not learned robotics-scale P4.2, a safety certificate, or a comparison at matched wall-clock"
+theory:
+  proposal_version: "2.1-p4.2-open-loop-v1"
+  theory_id: "spec-7.1-7.6"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p4.2
+  chunk_length: 3
+  total_steps: 12
+  beta: 0.1
+  margin: 1.0
+  v_fail: -1.0
+  actuator_slip: 0.1
+  value_horizon: 12
+  progress_weight: 2.0
+  minimum_success_gain: 0.01
+  maximum_clean_progress_loss: 0.05

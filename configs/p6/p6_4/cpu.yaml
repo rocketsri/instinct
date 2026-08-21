@@ -1,0 +1,54 @@
+experiment: p6_certification
+seed: 661
+seeds: [651, 652, 661]
+pilot_seeds: [651, 652]
+eval_seeds: [661]
+preregistration:
+  estimand: "True-environment safe-prefix gain of shift-robust CSA over robust union for a pilot-fitted transition model under held-out structural dynamics shifts"
+  primary_hypothesis: "At 8192 trajectories, robust CSA remains valid and nonvacuous in every structural-shift family and gains at least 0.2 actions over robust union"
+  non_claim: "A fitted three-state CPU model is not deployment evidence, and paired structural-shift calibration does not cover unobserved or nonexchangeable shifts"
+theory: {proposal_version: "2.1-p6.4-v1", theory_id: "spec-9.1-9.6-p6.4-learned-dynamics", amendment_id: "none"}
+compute: {run_class: cpu, cpu_hours_max: 2.0}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p6.4
+  confidence_delta: 0.05
+  episode_risk: 0.1
+  false_certification_tolerance: 0.05
+  gain_actions: 0.2
+  csa_bet_margin: 0.02
+  repetitions: 96
+  sample_sizes: [512, 1024, 2048, 4096, 8192]
+  declared_looks: 8192
+  pilot_trajectories: 20000
+  action_schedule: [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]
+  nominal_transition_matrices:
+    - [[0.979, 0.020, 0.001], [0.20, 0.78, 0.02], [0.0, 0.0, 1.0]]
+    - [[0.974, 0.024, 0.002], [0.15, 0.82, 0.03], [0.0, 0.0, 1.0]]
+    - [[0.969, 0.028, 0.003], [0.12, 0.84, 0.04], [0.0, 0.0, 1.0]]
+    - [[0.982, 0.017, 0.001], [0.25, 0.73, 0.02], [0.0, 0.0, 1.0]]
+  structural_shifts:
+    - name: stable
+      matrices:
+        - [[0.979, 0.020, 0.001], [0.20, 0.78, 0.02], [0.0, 0.0, 1.0]]
+        - [[0.974, 0.024, 0.002], [0.15, 0.82, 0.03], [0.0, 0.0, 1.0]]
+        - [[0.969, 0.028, 0.003], [0.12, 0.84, 0.04], [0.0, 0.0, 1.0]]
+        - [[0.982, 0.017, 0.001], [0.25, 0.73, 0.02], [0.0, 0.0, 1.0]]
+    - name: recovery_loss
+      matrices:
+        - [[0.979, 0.020, 0.001], [0.10, 0.84, 0.06], [0.0, 0.0, 1.0]]
+        - [[0.974, 0.024, 0.002], [0.07, 0.85, 0.08], [0.0, 0.0, 1.0]]
+        - [[0.969, 0.028, 0.003], [0.05, 0.84, 0.11], [0.0, 0.0, 1.0]]
+        - [[0.982, 0.017, 0.001], [0.12, 0.82, 0.06], [0.0, 0.0, 1.0]]
+    - name: late_hazard
+      matrices:
+        - [[0.979, 0.020, 0.001], [0.20, 0.78, 0.02], [0.0, 0.0, 1.0]]
+        - [[0.974, 0.024, 0.002], [0.15, 0.82, 0.03], [0.0, 0.0, 1.0]]
+        - [[0.960, 0.028, 0.012], [0.08, 0.84, 0.08], [0.0, 0.0, 1.0]]
+        - [[0.982, 0.017, 0.001], [0.25, 0.73, 0.02], [0.0, 0.0, 1.0]]
+    - name: entry_shift
+      matrices:
+        - [[0.959, 0.040, 0.001], [0.20, 0.78, 0.02], [0.0, 0.0, 1.0]]
+        - [[0.954, 0.044, 0.002], [0.15, 0.82, 0.03], [0.0, 0.0, 1.0]]
+        - [[0.949, 0.048, 0.003], [0.12, 0.84, 0.04], [0.0, 0.0, 1.0]]
+        - [[0.962, 0.037, 0.001], [0.25, 0.73, 0.02], [0.0, 0.0, 1.0]]

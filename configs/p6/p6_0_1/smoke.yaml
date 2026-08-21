@@ -1,0 +1,13 @@
+experiment: p6_certification
+seed: 601
+seeds: [601, 602]
+pilot_seeds: [601]
+eval_seeds: [602]
+preregistration:
+  estimand: "Simultaneous Bernoulli prefix-risk upper process across declared exits"
+  primary_hypothesis: "Familywise coverage survives adaptive exits and prefix selection"
+  non_claim: "Validity of a conservative union construction does not establish nonvacuity or novelty"
+theory: {proposal_version: "2.1", theory_id: "spec-9.1-9.6", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params: {confidence_delta: 0.05, episode_risk: 0.2}

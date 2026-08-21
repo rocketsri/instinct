@@ -1,0 +1,17 @@
+experiment: p1_atlas
+seed: 101
+seeds: [101, 102]
+pilot_seeds: [101]
+eval_seeds: [102]
+preregistration:
+  estimand: "Sigma and its named frozen decomposition in return units"
+  primary_hypothesis: "P1.0 reconstructs Sigma and M0-M5 recover planted conditional-transfer structure"
+  non_claim: "This known-answer gate does not establish transfer on sampled real-time environments or a universal collapse law"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-4.1-4.9"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  budgets: [1, 2, 4]

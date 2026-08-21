@@ -36,20 +36,15 @@ def pit():
 
 @pytest.mark.parametrize("budget", [1, 2, 4, 8])
 @pytest.mark.parametrize("nu_h", [0.0, 0.5, 1.0, 2.0])
-def test_residual_is_exactly_the_base_arms_own_delay_cost(chase, budget, nu_h) -> None:
-    """The chain telescopes, so the leftover is one identified quantity.
-
-    Not "small" — *identified*. Asserting the residual is merely small would let
-    it quietly absorb any effect the decomposition has no name for, which is
-    exactly the failure the first version of this module had.
-    """
+def test_base_delay_and_identity_residual_are_separate(chase, budget, nu_h) -> None:
+    """A physical base-delay cost must never be mislabeled reconstruction error."""
     mdp, reflex = chase
     d = decompose_exact(
         mdp, reflex=reflex, budget=budget, timing=Timing(nu_e=1.0, nu_h=nu_h)
     )
-    assert np.allclose(d.eps_cross, d.L_base_delay, atol=1e-12), (
-        "the residual should be the base arm's delay cost and nothing else"
-    )
+    assert np.max(np.abs(d.epsilon_id)) < 1e-12
+    if nu_h >= 1.0:
+        assert np.any(np.abs(d.L_base_delay) > 1e-8)
 
 
 @pytest.mark.parametrize("budget", [1, 2, 4, 8])
@@ -67,14 +62,19 @@ def test_residual_is_a_real_leftover_not_a_definition(chase) -> None:
     """Each term is measured independently, so the residual can be non-trivial.
 
     Guards against the failure where one term is silently defined as
-    ``sigma`` minus the others: that makes ``eps_cross`` identically zero and
+    ``sigma`` minus the others: that makes ``epsilon_id`` identically zero and
     certifies nothing. Perturbing a term must therefore break the identity.
     """
     mdp, reflex = chase
     d = decompose_exact(mdp, reflex=reflex, budget=8, timing=Timing(nu_e=1.0, nu_h=1.0))
     tampered = d.G_plan + 1.0
     explained = (
-        tampered + d.R_intermediate - d.L_arrival - d.L_wait - d.C_hw
+        tampered
+        + d.R_intermediate
+        - d.L_arrival
+        - d.L_wait
+        - d.C_hw
+        + d.L_base_delay
     )
     assert not np.allclose(explained, d.sigma), "the identity should not survive tampering"
 
@@ -159,17 +159,10 @@ def test_irreversible_term_separates_the_two_environments(chase, pit) -> None:
     assert float(recoverable.L_wait.max()) > 0.5
     assert float(unrecoverable.L_wait.max()) > 0.5
 
-    # L_irreversible is the term that must discriminate, and the signature is
-    # its *sign structure*, not its magnitude. Where everything is recoverable,
-    # waiting merely shifts you to a different phase of the chase: sometimes
-    # better, sometimes worse, averaging to nothing. Where a pit absorbs, waiting
-    # can only cost you, so the term is one-signed.
-    assert float(np.abs(recoverable.L_irreversible.mean())) < 0.02, (
-        "with no absorbing states, waiting should cost nothing on average"
-    )
-    assert float(recoverable.L_irreversible.min()) < -0.05, (
-        "and it should sometimes help, which is what makes it recoverable"
-    )
+    # The matched-time failure diagnostic is identically zero when the MDP has
+    # no declared failure states and positive when a safer continuation could
+    # have avoided an absorbing pit.
+    assert np.array_equal(recoverable.L_irreversible, np.zeros(chase_mdp.n_states))
 
     assert float(unrecoverable.L_irreversible.min()) >= -1e-9, (
         "with an absorbing pit, waiting can never leave you better off"

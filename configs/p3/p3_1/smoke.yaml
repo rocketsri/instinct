@@ -1,0 +1,25 @@
+experiment: p3_codesign
+seed: 311
+seeds: [311, 312, 391, 392]
+pilot_seeds: [311, 312]
+eval_seeds: [391, 392]
+preregistration:
+  estimand: "Held-out-delay one-interval return of a counterfactual-label reflex"
+  primary_hypothesis: "A planner-aware reflex beats matched-work conventional reflexes on held-out delays"
+  non_claim: "A tabular P3.1 result is not P3.2 alternating co-design, cross-planner generality, or scale evidence"
+theory: {proposal_version: "2.1", theory_id: "spec-6.1-6.8", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p3.1
+  pilot_delay_cells: [1, 2]
+  eval_delay_cells: [3]
+  n_positions: 4
+  gamma: 0.9
+  drift: 0.35
+  blocks: 2
+  epochs: 3
+  learning_rate: 0.12
+  audit_rollouts: 128
+  audit_tolerance: 0.75
+  minimum_gain: 0.0

@@ -1,0 +1,31 @@
+experiment: p4_slack
+seed: 461
+tag: p4.1-inertial-layout-repair-v2
+notes: "Fresh layouts and explicit geometry; preserves the failed v1 test layout"
+seeds: [461, 462, 463]
+pilot_seeds: [461, 462]
+eval_seeds: [463]
+preregistration:
+  estimand: "Coverage of a geometry-aware frozen recovery surrogate on a fresh held-out 2-D inertial obstacle layout"
+  primary_hypothesis: "The v2 condition-calibrated inertial surrogate covers at least 90% of exact fresh-layout labels with nonvacuous width"
+  non_claim: "Estimator coverage is not recovery-slack policy improvement, robotics generalization, or a safety certificate"
+theory:
+  proposal_version: "2.1-p4.1-inertial-v2"
+  theory_id: "spec-7.1-7.6"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p4.1-inertial
+  inertial_estimator_version: v2-layout-geometry
+  q: 0.25
+  margin: 1.0
+  v_fail: -1.0
+  replan_horizon: 12
+  calibration_alpha: 0.1
+  state_coverage: 0.9
+  minimum_coverage: 0.9
+  minimum_condition_success_fraction: 0.8
+  maximum_width_fraction: 0.75
+  condition_slips: [0.05, 0.15, 0.25]
+  condition_horizons: [8, 12, 16]

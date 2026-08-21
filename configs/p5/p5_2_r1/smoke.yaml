@@ -1,0 +1,21 @@
+experiment: p5_development
+seed: 621
+seeds: [621, 622, 623, 691, 692, 693]
+pilot_seeds: [621, 622, 623]
+eval_seeds: [691, 692, 693]
+preregistration:
+  estimand: "Fresh-holdout adaptation AUC gain beyond a pilot-calibrated meaningful-effect threshold"
+  primary_hypothesis: "An eight-term fixed local rule beats frozen, multiple random, and no-plasticity controls on fresh task/topology units"
+  non_claim: "Recovery-cycle plasticity evidence is not P5.3, NNiT superiority, or a general learned-optimizer result"
+theory: {proposal_version: "2.1", theory_id: "spec-8.1-8.6", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p5.2-r1
+  pilot_widths: [5, 7]
+  eval_widths: [9, 11]
+  pilot_depths: [1, 2]
+  eval_depths: [3]
+  pilot_steps: 6
+  eval_steps: 15
+  random_rule_count: 8

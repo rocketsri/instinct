@@ -1,0 +1,21 @@
+experiment: p5_development
+seed: 521
+seeds: [521, 522, 591, 592]
+pilot_seeds: [521, 522]
+eval_seeds: [591, 592]
+preregistration:
+  estimand: "Early-adaptation loss of one fixed local rule on joint task/topology holdouts"
+  primary_hypothesis: "Plasticity learned on small tasks and networks improves adaptation on unseen task, width, and depth combinations"
+  non_claim: "A plasticity-only CPU pilot is not a joint initialization-plus-plasticity P5.3 result or an NNiT comparison"
+theory: {proposal_version: "2.1", theory_id: "spec-8.1-8.6", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p5.2
+  pilot_widths: [4, 6]
+  eval_widths: [8]
+  pilot_depths: [1]
+  eval_depths: [2]
+  pilot_steps: 5
+  eval_steps: 12
+  minimum_relative_gain: 0.0

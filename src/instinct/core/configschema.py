@@ -31,6 +31,7 @@ __all__ = [
     "ProposalRunConfig",
     "ResumeConfig",
     "RunClass",
+    "TheoryReference",
     "load_proposal_config",
     "proposal_config_from_mapping",
 ]
@@ -51,6 +52,15 @@ class PreregistrationConfig:
     estimand: str
     primary_hypothesis: str
     non_claim: str
+
+
+@dataclass(frozen=True, slots=True)
+class TheoryReference:
+    """Immutable link from an experiment to its scientific specification."""
+
+    proposal_version: str
+    theory_id: str
+    amendment_id: str = "none"
 
 
 #: Spec section 3.1's resource envelope, keyed by run class. A config's
@@ -124,6 +134,7 @@ class ProposalRunConfig(RunConfig):
     preregistration: PreregistrationConfig = field(
         default_factory=lambda: PreregistrationConfig("", "", "")
     )
+    theory: TheoryReference = field(default_factory=lambda: TheoryReference("", ""))
     seeds: list[int] = field(default_factory=list)
     pilot_seeds: list[int] = field(default_factory=list)
     eval_seeds: list[int] = field(default_factory=list)

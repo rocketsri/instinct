@@ -1,0 +1,47 @@
+experiment: p2_harmful_write
+seed: 241
+seeds: [241, 242]
+pilot_seeds: [241]
+eval_seeds: [242]
+preregistration:
+  estimand: "Original multi-horizon write utility on fresh whole-image CIFAR-10 corruption streams, with downstream accuracy and separate benefit, damage, and measured cost"
+  primary_hypothesis: "At matched admitted-write count and wall-clock, an offline oracle improves the untouched CIFAR-10 corruption frontier over dense, never, random, validation, EATA-style, SAR-style, and reset controls"
+  non_claim: "A missing runtime or unverified dataset/weight artifact cannot be replaced by a toy proxy and cannot qualify P7"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-5.1-5.10"
+  amendment_id: "portfolio-2.1"
+compute:
+  run_class: t4
+resume:
+  checkpoint_every_minutes: 15.0
+  allow_resume: true
+params:
+  stage: p2_2_r2
+  cifar10_archive: /private/tmp/instinct-p2-artifacts/cifar-10-python.tar.gz
+  resnet18_weights: /private/tmp/instinct-p2-artifacts/resnet18-f37072fd.pth
+  model: resnet18_imagenet1k_v1
+  adapted_parameters: batchnorm_affine_and_cifar10_linear_head
+  eval_partition_seed: 241
+  horizons: [1, 2, 4]
+  horizon_weights: [0.5, 0.3, 0.2]
+  retention_lambda: 1.0
+  write_fractions: [0.1, 0.25, 0.5]
+  random_replicates: 8
+  baselines: [dense, never, random, validation, eata, sar, reset, oracle]
+  require_measured_wall_clock_match: true
+  require_downstream_accuracy: true
+  external_runner: benchmarks/p2_recovery2_colab.py
+  artifact_schema: instinct.p2.recovery2.v1
+  full_eval_confirmation: OPEN_FROZEN_P2_R2_TEST_PARTITION
+  n_steps: 50
+  min_age: 4
+  regime_length: 8
+  source_epochs: 5
+  source_batch_size: 128
+  adaptation_lr: 0.001
+  cost_loss_per_second: 0.001
+  reset_every: 4
+  compute_match_tolerance: 0.25
+  minimum_accuracy_gain: 0.005
+  minimum_source_accuracy: 0.45

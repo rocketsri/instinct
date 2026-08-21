@@ -33,12 +33,8 @@ def test_unknown_proposal_id_is_rejected_before_any_import() -> None:
 
 
 @pytest.mark.parametrize("proposal_id", PROPOSAL_MODULES)
-def test_unbuilt_proposal_fails_loudly_not_silently(proposal_id: str) -> None:
-    """None of the seven exist yet at Stage A. That must be a loud import
-    error, not a silent no-op plugin — a config naming an unbuilt proposal
-    should fail exactly like a typo would."""
-    with pytest.raises(ModuleNotFoundError):
-        load_plugin(proposal_id)
+def test_all_proposal_plugins_are_built(proposal_id: str) -> None:
+    assert isinstance(load_plugin(proposal_id), ProposalPlugin)
 
 
 def test_dummy_fixture_satisfies_the_protocol_structurally() -> None:

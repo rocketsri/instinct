@@ -1,0 +1,27 @@
+experiment: p4_slack
+seed: 492
+tag: p4.2-adaptive-verifier-recovery2
+notes: "Final fresh recovery: pilot-calibrated verifier at the same expected call budget"
+seeds: [492, 493, 494]
+pilot_seeds: [492, 493]
+eval_seeds: [494]
+preregistration:
+  estimand: "Held-out magnitude-two impulse goal gain of a recovery-value verifier at the task-only average replanning budget"
+  primary_hypothesis: "Pilot-calibrated adaptive verification improves held-out success by at least one percentage point at four plus-or-minus 0.25 expected calls"
+  non_claim: "A positive verifier result would not establish slack-regularized training, robotics scale, matched wall-clock, or a safety certificate"
+theory:
+  proposal_version: "2.1-p4.2-recovery2"
+  theory_id: "spec-7.1-7.6"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p4.2
+  policy_version: r2-adaptive-verifier
+  total_steps: 12
+  beta: 0.1
+  margin: 1.0
+  v_fail: -1.0
+  target_calls: 4.0
+  call_tolerance: 0.25
+  minimum_success_gain: 0.01

@@ -1,0 +1,13 @@
+experiment: p5_development
+seed: 501
+seeds: [501, 502]
+pilot_seeds: [501]
+eval_seeds: [502]
+preregistration:
+  estimand: "Permutation and width behavior of one fixed-length coordinate program"
+  primary_hypothesis: "Generated initialization and local updates commute with declared neuron permutations and transfer across widths"
+  non_claim: "A constructed generator sanity check does not beat meta-learning or local-plasticity prior art"
+theory: {proposal_version: "2.1", theory_id: "spec-8.1-8.6", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params: {}

@@ -1,0 +1,28 @@
+experiment: p4_slack
+seed: 495
+tag: p4.2-exact-budget-f2-repair
+notes: "Fresh F2 repair: pathwise fixed verifier budget; recovery2 mechanism unchanged"
+seeds: [495, 496, 497]
+pilot_seeds: [495, 496]
+eval_seeds: [497]
+preregistration:
+  estimand: "Fresh magnitude-two impulse goal gain of the recovery gate with exactly four planning/verifier calls on every trajectory"
+  primary_hypothesis: "Exactly budgeted adaptive verification improves held-out success by at least one percentage point at exactly four calls"
+  non_claim: "A positive result is an inference-time verifier signal only; it does not establish prefix-slack training, matched wall-clock, robotics scale, or a safety certificate"
+theory:
+  proposal_version: "2.1-p4.2-recovery2-f2r1"
+  theory_id: "spec-7.1-7.6/verifier-branch"
+  amendment_id: "p4-1.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p4.2
+  policy_version: r2-f2-budgeted-verifier
+  total_steps: 12
+  beta: 0.1
+  margin: 1.0
+  v_fail: -1.0
+  target_calls: 4.0
+  call_tolerance: 0.000001
+  gate_threshold: 1.996632239650217
+  minimum_success_gain: 0.01

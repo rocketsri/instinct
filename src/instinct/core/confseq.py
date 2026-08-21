@@ -46,17 +46,24 @@ def normal_mixture_radius(
     a particular sample size; the default targets a moderate one, since most
     sweep cells resolve early. Larger ``rho`` trades early tightness for late.
 
-    The radius shrinks like ``sqrt(log log n / n)`` rather than ``sqrt(1/n)`` —
-    the price of validity at every ``n`` at once. It is a small price: a factor
-    of roughly 1.5-2 in width, against an error rate that would otherwise creep
-    toward 1 under repeated peeking.
+    With fixed mixture tuning the radius shrinks like ``sqrt(log n / n)``. More
+    elaborate stitched boundaries can attain iterated-log behavior; this helper
+    deliberately uses the simpler single-mixture construction.
     """
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must lie strictly between zero and one")
     if n <= 0:
         return float("inf")
-    if sigma <= 0:
+    if sigma < 0:
+        raise ValueError("sigma must be nonnegative")
+    if sigma == 0:
         return 0.0
     if rho is None:
-        rho = max(1.0, n / 8.0)
+        # Mixture tuning is fixed before observations. Recomputing it from n
+        # destroys the single-supermartingale/time-uniform argument.
+        rho = 1.0
+    if rho <= 0:
+        raise ValueError("rho must be positive")
     v = n  # intrinsic time for an i.i.d. mean
     inner = np.sqrt((v + rho) / rho) / alpha
     radius = sigma * np.sqrt(2.0 * (v + rho) * np.log(inner)) / n
@@ -77,10 +84,16 @@ def empirical_bernstein_radius(
     A range-based term is retained so the bound stays honest when the variance
     estimate is itself built from few samples.
     """
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must lie strictly between zero and one")
+    if variance < 0 or rng <= 0:
+        raise ValueError("variance must be nonnegative and rng must be positive")
     if n <= 0:
         return float("inf")
     if rho is None:
-        rho = max(1.0, n / 8.0)
+        rho = 1.0
+    if rho <= 0:
+        raise ValueError("rho must be positive")
     v = max(n * variance, 1e-12)
     inner = np.sqrt((v + rho) / rho) / alpha
     log_term = np.log(inner)
@@ -106,7 +119,11 @@ class ConfidenceSequence:
 
     alpha: float = 0.05
     value_range: float = 1.0
-    method: str = "empirical_bernstein"
+    # The theorem-matched normal mixture is the safe default. The empirical
+    # Bernstein helper remains available for diagnostics, but P6 certification
+    # uses its own Bernoulli process with explicit familywise spending.
+    method: str = "normal_mixture"
+    rho: float = 1.0
     n: int = 0
     _sum: float = 0.0
     _sum_sq: float = 0.0
@@ -135,10 +152,10 @@ class ConfidenceSequence:
     def radius(self) -> float:
         if self.method == "empirical_bernstein":
             return empirical_bernstein_radius(
-                self.n, self.variance, self.value_range, self.alpha
+                self.n, self.variance, self.value_range, self.alpha, self.rho
             )
         if self.method == "normal_mixture":
-            return normal_mixture_radius(self.n, self.value_range / 2.0, self.alpha)
+            return normal_mixture_radius(self.n, self.value_range / 2.0, self.alpha, self.rho)
         raise ValueError(f"unknown method {self.method!r}")
 
     def interval(self) -> tuple[float, float]:

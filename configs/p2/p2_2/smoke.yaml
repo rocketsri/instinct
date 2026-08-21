@@ -1,0 +1,32 @@
+experiment: p2_harmful_write
+seed: 221
+seeds: [221, 222]
+pilot_seeds: [221]
+eval_seeds: [222]
+preregistration:
+  estimand: "Multi-horizon natural-image write utility with separate benefit, damage, and cost"
+  primary_hypothesis: "At matched admitted-write count, the offline oracle improves downstream restoration utility over validation-only and random selection"
+  non_claim: "A single-image affine-head pilot is not the frozen pretrained CIFAR-C P2.2 benchmark, a deployable trigger, or evidence that qualifies P7"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-5.1-5.10"
+  amendment_id: "portfolio-2.1"
+compute:
+  run_class: smoke
+resume:
+  checkpoint_every_minutes: 15.0
+  allow_resume: true
+params:
+  stage: p2_2
+  n_steps: 28
+  patch_size: 10
+  horizons: [1, 2, 4]
+  horizon_weights: [0.5, 0.3, 0.2]
+  min_age: 4
+  write_fraction: 0.35
+  learning_rate: 0.18
+  retention_lambda: 1.0
+  write_cost: 0.0001
+  random_replicates: 8
+  correlation_threshold: 0.25
+  utility_margin: 0.00001

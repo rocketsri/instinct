@@ -2,7 +2,7 @@
 
 ## Agent-executable experimental plan for seven proposals
 
-**Version:** 2.0  
+**Version:** 2.1
 **Literature and novelty check:** 16 August 2026  
 **Compute:** CPU experiments and interruptible free-tier Google Colab NVIDIA T4 sessions  
 **Purpose:** turn the seven proposals into bounded, reproducible experiments that can produce a useful positive, negative, or inconclusive result without silently changing the hypothesis.
@@ -882,7 +882,7 @@ Priority order under a free-Colab budget:
 
 P6 remains CPU-first. Larger learned refinements are optional, not required for its core result.
 
-## Stage D — Select at most two paper-scale directions
+## Stage D — Continue every successful paper-scale direction
 
 Choose using preregistered evidence, not thematic preference. A direction should normally satisfy all of:
 
@@ -892,7 +892,7 @@ Choose using preregistered evidence, not thematic preference. A direction should
 4. retains a novelty claim after the literature comparison;
 5. can be completed within one additional free-Colab-scale experimental cycle.
 
-If more than two qualify, prefer complementary risk: one robust empirical result and one higher-upside model/theory result.
+There is no portfolio-wide cap on successful directions. Every proposal satisfying these criteria may continue, subject to its own preregistered compute ceiling, review gates, and available serialized GPU capacity. Scheduling priority may favor complementary risk, but priority must not be converted into archival of another qualifying direction.
 
 ---
 

@@ -59,14 +59,18 @@ def test_batched_lanes_match_the_reference(fixture) -> None:
     env, state0, scope, planner, reflex, cfg = fixture
     specs = [LaneSpec(arm, k) for arm in ARMS for k in cfg.budgets]
 
-    fast = simulate_lanes(
-        env, state0, specs, cfg=cfg, reflex=reflex, planner=planner, scope=scope
-    )
+    fast = simulate_lanes(env, state0, specs, cfg=cfg, reflex=reflex, planner=planner, scope=scope)
 
     for spec in specs:
         ref = simulate_arm(
-            env, state0, arm=spec.arm, budget=spec.budget, cfg=cfg,
-            reflex=reflex, planner=planner, scope=scope,
+            env,
+            state0,
+            arm=spec.arm,
+            budget=spec.budget,
+            cfg=cfg,
+            reflex=reflex,
+            planner=planner,
+            scope=scope,
         )
         got = fast[(spec.arm, spec.budget)]
         label = f"{spec.arm}@{spec.budget}"
@@ -82,17 +86,24 @@ def test_equivalence_holds_across_timings(fixture, commit, nu_h) -> None:
     """Phase bookkeeping is where batching breaks; vary delays and windows."""
     env, state0, scope, planner, reflex, base = fixture
     cfg = RealTimeConfig(
-        budgets=base.budgets, timing=Timing(nu_e=1.0, nu_h=nu_h),
-        commit=commit, horizon=20, gamma=base.gamma,
+        budgets=base.budgets,
+        timing=Timing(nu_e=1.0, nu_h=nu_h),
+        commit=commit,
+        horizon=20,
+        gamma=base.gamma,
     )
     specs = [LaneSpec(arm, k) for arm in ARMS for k in (1, 4)]
-    fast = simulate_lanes(
-        env, state0, specs, cfg=cfg, reflex=reflex, planner=planner, scope=scope
-    )
+    fast = simulate_lanes(env, state0, specs, cfg=cfg, reflex=reflex, planner=planner, scope=scope)
     for spec in specs:
         ref = simulate_arm(
-            env, state0, arm=spec.arm, budget=spec.budget, cfg=cfg,
-            reflex=reflex, planner=planner, scope=scope,
+            env,
+            state0,
+            arm=spec.arm,
+            budget=spec.budget,
+            cfg=cfg,
+            reflex=reflex,
+            planner=planner,
+            scope=scope,
         )
         assert np.allclose(
             fast[(spec.arm, spec.budget)].total_return, ref.total_return, atol=1e-12
@@ -107,8 +118,14 @@ def test_reward_splits_between_reflex_and_committed(fixture) -> None:
     env, state0, scope, planner, reflex, cfg = fixture
     for arm in ARMS:
         t = simulate_arm(
-            env, state0, arm=arm, budget=4, cfg=cfg,
-            reflex=reflex, planner=planner, scope=scope,
+            env,
+            state0,
+            arm=arm,
+            budget=4,
+            cfg=cfg,
+            reflex=reflex,
+            planner=planner,
+            scope=scope,
         )
         assert np.allclose(t.total_return, t.intermediate + t.committed, atol=1e-12), arm
 
@@ -117,8 +134,14 @@ def test_instant_arm_banks_no_reflex_reward(fixture) -> None:
     """Zero delay means the reflex never acts."""
     env, state0, scope, planner, reflex, cfg = fixture
     t = simulate_arm(
-        env, state0, arm="instant", budget=8, cfg=cfg,
-        reflex=reflex, planner=planner, scope=scope,
+        env,
+        state0,
+        arm="instant",
+        budget=8,
+        cfg=cfg,
+        reflex=reflex,
+        planner=planner,
+        scope=scope,
     )
     assert np.allclose(t.intermediate, 0.0)
 
@@ -132,12 +155,24 @@ def test_fresh_still_pays_the_delay(fixture) -> None:
     """
     env, state0, scope, planner, reflex, cfg = fixture
     fresh = simulate_arm(
-        env, state0, arm="fresh", budget=8, cfg=cfg,
-        reflex=reflex, planner=planner, scope=scope,
+        env,
+        state0,
+        arm="fresh",
+        budget=8,
+        cfg=cfg,
+        reflex=reflex,
+        planner=planner,
+        scope=scope,
     )
     actual = simulate_arm(
-        env, state0, arm="actual", budget=8, cfg=cfg,
-        reflex=reflex, planner=planner, scope=scope,
+        env,
+        state0,
+        arm="actual",
+        budget=8,
+        cfg=cfg,
+        reflex=reflex,
+        planner=planner,
+        scope=scope,
     )
     assert not np.allclose(fresh.intermediate, 0.0), "fresh must still pay the delay"
     # First epoch is shared exactly; later epochs diverge once decisions differ.
@@ -151,8 +186,11 @@ def test_zero_speed_makes_fresh_and_actual_identical(fixture) -> None:
     """
     env, state0, scope, planner, reflex, base = fixture
     cfg = RealTimeConfig(
-        budgets=base.budgets, timing=Timing(nu_e=0.0, nu_h=1.0),
-        commit=1, horizon=20, gamma=base.gamma,
+        budgets=base.budgets,
+        timing=Timing(nu_e=0.0, nu_h=1.0),
+        commit=1,
+        horizon=20,
+        gamma=base.gamma,
     )
     kw = dict(cfg=cfg, reflex=reflex, planner=planner, scope=scope)
     fresh = simulate_arm(env, state0, arm="fresh", budget=8, **kw)
@@ -174,16 +212,26 @@ def test_arms_share_environment_noise(fixture) -> None:
     def fixed_planner(state: EnvState, budget: int, tick: int) -> np.ndarray:
         return np.zeros(state.n_lanes, dtype=np.int64)
 
-    flat = RealTimeConfig(
-        budgets=(4,), timing=Timing(nu_e=0.0), commit=1, horizon=15, gamma=0.9
-    )
+    flat = RealTimeConfig(budgets=(4,), timing=Timing(nu_e=0.0), commit=1, horizon=15, gamma=0.9)
     a = simulate_arm(
-        env, state0, arm="actual", budget=4, cfg=flat,
-        reflex=reflex, planner=fixed_planner, scope=scope,
+        env,
+        state0,
+        arm="actual",
+        budget=4,
+        cfg=flat,
+        reflex=reflex,
+        planner=fixed_planner,
+        scope=scope,
     )
     b = simulate_arm(
-        env, state0, arm="fresh", budget=4, cfg=flat,
-        reflex=reflex, planner=fixed_planner, scope=scope,
+        env,
+        state0,
+        arm="fresh",
+        budget=4,
+        cfg=flat,
+        reflex=reflex,
+        planner=fixed_planner,
+        scope=scope,
     )
     assert np.allclose(a.total_return, b.total_return, atol=1e-12)
 
@@ -212,8 +260,14 @@ def test_pit_absorbs_and_stops_accruing_reward() -> None:
 
     cfg = RealTimeConfig(budgets=(1,), timing=Timing(nu_e=1.0, nu_h=1.0), horizon=30)
     trace = simulate_arm(
-        env, state0, arm="actual", budget=1, cfg=cfg,
-        reflex=always_advance, planner=always_advance, scope=scope,
+        env,
+        state0,
+        arm="actual",
+        budget=1,
+        cfg=cfg,
+        reflex=always_advance,
+        planner=always_advance,
+        scope=scope,
     )
     assert np.all(np.isfinite(trace.total_return))
     # With slip 0.9 nearly every lane falls in, and the pit pays nothing after.
@@ -225,6 +279,78 @@ def test_unknown_arm_is_rejected(fixture) -> None:
     env, state0, scope, planner, reflex, cfg = fixture
     with pytest.raises(ValueError, match="unknown arm"):
         simulate_arm(
-            env, state0, arm="wishful", budget=1, cfg=cfg,
-            reflex=reflex, planner=planner, scope=scope,
+            env,
+            state0,
+            arm="wishful",
+            budget=1,
+            cfg=cfg,
+            reflex=reflex,
+            planner=planner,
+            scope=scope,
         )
+
+
+def test_plan_missing_horizon_is_still_charged(fixture) -> None:
+    env, state0, scope, planner, reflex, base = fixture
+    cfg = RealTimeConfig(
+        budgets=(8,),
+        timing=Timing(nu_e=1.0, nu_h=10.0),
+        horizon=3,
+        gamma=base.gamma,
+    )
+    trace = simulate_arm(
+        env,
+        state0,
+        arm="actual",
+        budget=8,
+        cfg=cfg,
+        reflex=reflex,
+        planner=planner,
+        scope=scope,
+    )
+    assert np.all(trace.planner_calls_per_lane == 1)
+    assert np.all(trace.simulations_per_lane == 8)
+    assert np.all(trace.pending_at_horizon)
+
+
+def test_per_lane_work_matches_sequential_mixed_termination() -> None:
+    mdp = corridor_with_pit(length=6, slip=0.45)
+    env = TabularEnv(mdp=mdp, start_state=0)
+    scope = SeedScope(90210).child("mixed_termination")
+    state0 = env.reset(np.arange(32), scope=scope)
+
+    def advance(state: EnvState, *args) -> np.ndarray:
+        return np.zeros(state.n_lanes, dtype=np.int64)
+
+    cfg = RealTimeConfig(
+        budgets=(2,), timing=Timing(nu_e=0.0), commit=1, horizon=20, gamma=mdp.gamma
+    )
+    batched = simulate_lanes(
+        env,
+        state0,
+        [LaneSpec("actual", 2)],
+        cfg=cfg,
+        reflex=advance,
+        planner=advance,
+        scope=scope,
+    )[("actual", 2)]
+
+    sequential_calls = []
+    sequential_simulations = []
+    for lane in range(state0.n_lanes):
+        one = simulate_arm(
+            env,
+            state0.take(np.array([lane])),
+            arm="actual",
+            budget=2,
+            cfg=cfg,
+            reflex=advance,
+            planner=advance,
+            scope=scope,
+        )
+        sequential_calls.append(one.planner_calls_per_lane[0])
+        sequential_simulations.append(one.simulations_per_lane[0])
+
+    assert np.array_equal(batched.planner_calls_per_lane, sequential_calls)
+    assert np.array_equal(batched.simulations_per_lane, sequential_simulations)
+    assert np.unique(batched.planner_calls_per_lane).size > 1

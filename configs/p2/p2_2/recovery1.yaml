@@ -1,0 +1,33 @@
+experiment: p2_harmful_write
+seed: 231
+seeds: [231, 232]
+pilot_seeds: [231]
+eval_seeds: [232]
+preregistration:
+  estimand: "Multi-horizon write utility on a pretrained nonlinear multi-image restoration stream, with benefit, damage, and cost separate"
+  primary_hypothesis: "At exactly three admitted writes, the oracle-probe-only exact subset ceiling improves downstream utility over validation-only and random selection and improves MSE over never-write"
+  non_claim: "Three packaged images and a nonlinear color head do not satisfy the frozen CIFAR-C pretrained-model P2.2 realism contract or qualify P7"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-5.1-5.10"
+  amendment_id: "portfolio-2.1"
+compute:
+  run_class: smoke
+resume:
+  checkpoint_every_minutes: 15.0
+  allow_resume: true
+params:
+  stage: p2_2_r1
+  n_steps: 36
+  patch_size: 8
+  regime_length: 9
+  horizons: [1, 2, 4]
+  horizon_weights: [0.5, 0.3, 0.2]
+  min_age: 4
+  m: 3
+  learning_rate: 0.035
+  retention_lambda: 1.0
+  write_cost: 0.00001
+  random_replicates: 8
+  correlation_threshold: 0.25
+  utility_margin: 0.00001

@@ -1,0 +1,40 @@
+experiment: p2_harmful_write
+seed: 211
+seeds: [211, 212, 213]
+pilot_seeds: [211, 212]
+eval_seeds: [213]
+preregistration:
+  estimand: "Stateful retention-plasticity utility at exactly matched admitted-write count"
+  primary_hypothesis: "An offline iteratively rescored oracle improves the synthetic stateful frontier over simple rankings at the same write count"
+  non_claim: "This synthetic offline ceiling is not a deployable trigger, realistic useful-sparsity result, or matched-wall-clock deployment gain"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-5.1-5.9"
+  amendment_id: "portfolio-2.1"
+compute:
+  run_class: cpu
+resume:
+  checkpoint_every_minutes: 15.0
+  allow_resume: true
+params:
+  stage: p2_1
+  n_chunks: 40
+  chunk_size: 18
+  conflict_every: 13
+  horizons: [1, 2, 4]
+  min_age: 4
+  n_aged_probes: 4
+  n_retention_probes: 12
+  n_holdout_chunks: 4
+  m_fractions: [0.0, 0.5, 1.0]
+  n_random: 5
+  periodic_every: 5
+  rescore_block_size: 4
+  iterative_probe_budget: 256
+  retention_lambda: 1.0
+  write_cost: 0.001
+  score_cost: 0.0
+  anchor_strength: 0.1
+  anchor_cost: 0.0001
+  reset_every: 5
+  reset_cost: 0.0001

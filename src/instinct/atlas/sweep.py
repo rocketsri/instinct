@@ -10,7 +10,7 @@ Why the exact arm carries the grid
 Every cell here is a closed-form linear solve rather than a batch of rollouts,
 which is what makes a grid of this size a few seconds of CPU instead of an
 overnight job. It also removes the one confound that would otherwise dominate a
-first result: with no sampling error, ``eps_cross`` is machine epsilon, so the
+first result: with no sampling error, ``epsilon_id`` is machine epsilon, so the
 "decomposition noise swamps the budget effect" kill condition is cleared by
 construction and any transfer failure is a fact about the surface rather than
 about how many seeds were spent.
@@ -189,8 +189,8 @@ def write_report(result: SweepResult, path: str | Path) -> Path:
         f"{df['nu_h'].nunique()} latencies x {df['budget'].nunique()} budgets x "
         f"{df['start_state'].nunique()} start states",
         f"- Exact closed-form solves, no sampling. Wall clock {result.wall_clock_s:.1f}s.",
-        f"- Worst |eps_cross - L_base_delay| residual: identity holds to "
-        f"{float(np.abs(df['eps_cross']).max()):.3g} in identified terms.",
+        f"- Worst |epsilon_id| residual: identity holds to "
+        f"{float(np.abs(df['epsilon_id']).max()):.3g} in return units.",
         "",
         "## Regime taxonomy",
         "",

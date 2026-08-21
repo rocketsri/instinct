@@ -136,6 +136,9 @@ class VerdictReport:
     interpretation: str = ""
     non_claim: str = ""
     decision: str = ""  # exact next experiment, or explicit termination
+    proposal_version: str = ""
+    theory_id: str = ""
+    amendment_id: str = "none"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +156,9 @@ class VerdictReport:
             "interpretation": self.interpretation,
             "non_claim": self.non_claim,
             "decision": self.decision,
+            "proposal_version": self.proposal_version,
+            "theory_id": self.theory_id,
+            "amendment_id": self.amendment_id,
         }
 
     @property
@@ -191,6 +197,9 @@ def load_verdict_json(path: str | Path) -> VerdictReport:
         interpretation=str(data.get("interpretation", "")),
         non_claim=str(data.get("non_claim", "")),
         decision=str(data.get("decision", "")),
+        proposal_version=str(data.get("proposal_version", "")),
+        theory_id=str(data.get("theory_id", "")),
+        amendment_id=str(data.get("amendment_id", "none")),
     )
 
 
@@ -228,6 +237,7 @@ def render_report_md(
         f"**Status:** {report.status.value}"
         + (f" ({report.failure_code.value})" if report.failure_code is not None else ""),
         f"**Evidence level:** {report.evidence_level}",
+        f"**Theory:** {report.proposal_version} / {report.theory_id} / {report.amendment_id}",
         "",
         "## Commit / config",
         "",

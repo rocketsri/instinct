@@ -13,17 +13,22 @@ contribution. The lens only becomes scientifically meaningful if these projects 
 exchange rates among freshness, progress, recoverability and retention — not merely because they all
 happen to contain gates.
 
-`docs/portfolio.md` holds the full portfolio. This repo currently implements the first three.
+The frozen scientific specification is
+`docs/AI_Instinct_Seven_Proposal_Execution_Plan.md`. All seven proposals now have
+version-traced CLI smoke packages; only the bounded CPU gates described below
+and several bounded learned pilots are implemented. Scale stages remain gated.
 
 ## What is here
 
 | Program | Question | Status |
 | --- | --- | --- |
-| **P1** computation–freshness atlas | When does added computation lose value because the world advanced while you thought? | building |
-| **P2** harmful-write TTT | Can a test-time memory tell useful plasticity from destructive plasticity? | planned |
-| **P3** planner–reflex co-design | Can the fast policy be trained to deliver the agent into states where the slow plan still helps? | planned |
-| **P6** anytime-certified refinement | Risk certificates for action prefixes across compute exits. | scaffold |
-| **P4 / P5 / P7** | Replanning slack; developmental plasticity; information-triggered chunking. | specs only |
+| **P1** computation–freshness atlas | When does added computation lose value because the world advanced while you thought? | Exact Sigma instrument retained; conditional P1.1 atlas archived after two baseline-dominated recoveries |
+| **P2** harmful-write TTT | Can a test-time memory tell useful plasticity from destructive plasticity? | P2.1 synthetic GO; realistic T4 runner complete, but train-only pilots expose oracle/downstream misalignment; held-out recovery unconsumed |
+| **P3** planner–reflex co-design | Can the fast policy improve planner arrival state? | Exact P3.0 retained; learned P3.1/P3.2 direction archived after two recoveries collapsed to simple baselines |
+| **P4** prefix recovery slack | Does prefix-wise recovery training beat matched verification? | Exact environment and estimator retained; P4.2 archived after slack/verifier failures at matched calls |
+| **P5** developmental program | Can fixed code generate initialization and local plasticity? | P5.2 archived after both local-plasticity recoveries missed pilot-derived thresholds; P5.3 locked |
+| **P6** anytime-certified refinement | Risk certificates for action prefixes across compute exits. | P6.3 bounded shift-robust CPU frontier GO; larger systems/assumption validation remains |
+| **P7** fixed-shape admission | Can semantic selection preserve large-update utilization? | queue/audit simulator only; locked on qualifying realistic P2.2 evidence |
 
 ## Why one codebase and not three
 
@@ -76,7 +81,7 @@ See the Performance section of the plan for the full list and `benchmarks/` for 
 uv sync --extra dev            # core + tooling, CPU only, no torch
 uv sync --extra dev --extra nn # adds torch (CPU wheels) for the P2 work
 uv run pytest
-uv run instinct run p1_atlas --config configs/smoke/p1.yaml
+uv run instinct run --proposal p1_atlas --config configs/p1/p1_0/smoke.yaml
 ```
 
 Torch resolves to CPU wheels locally by design: the only GPU available is a Colab T4, and Colab
@@ -98,14 +103,19 @@ measurement is computed in fp32.
 
 ```
 src/instinct/
-  core/      CRN rng, exact MDPs, batched envs, planner, rollout, stats, cache
+  core/      CRN rng, exact MDPs, batched envs, RL harness, planner, rollout, stats
   atlas/     P1: decomposition, sweep, curve fitting, transfer tests, kill harness
   ttt/       P2: fast weights, exact-fork oracle, frontier, gate, transactional
-  codesign/  P3: option objective, CRN branching, VoI, beta sweep
-  certify/   P6: anytime-valid confidence sequences, prefix and episode certification
+  p1_atlas/          P1 CLI/theory mapping
+  p2_harmful_write/  P2 CLI/theory mapping
+  p3_codesign/       P3 one-interval exact objective and gate
+  p4_slack/          P4 quantile/slack instrument
+  p5_development/    P5 coordinate generator and locality/symmetry checks
+  p6_certification/  P6 finite-family Bernoulli process
+  p7_chunking/       P7 dependency guard and queue simulator
   audit/     shared: exact counterfactuals, propensity estimators, blind-spot detection
-  envs/      tabular / gridworld / arcade, plus the optional FTTT adapter
-  compute/   FLOP and wall-clock accounting, Colab dispatch
+  core/envs/ tabular, gridworld, arcade, and continuous delayed control
+  core/compute/ FLOP and wall-clock accounting, Colab dispatch
 configs/     smoke (seconds) / cpu (minutes) / t4 (hours)
 reports/     generated, committed
 specs/       P4, P5, P7 designs

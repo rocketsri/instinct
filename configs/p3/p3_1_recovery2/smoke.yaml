@@ -1,0 +1,30 @@
+experiment: p3_codesign
+seed: 317
+tag: p3.1-final-recovery-v5
+notes: "Final allowed recovery in observed-latency continuous inertial control; all earlier eval units sealed"
+seeds: [317, 318, 397, 398, 399, 400]
+pilot_seeds: [317, 318]
+eval_seeds: [397, 398, 399, 400]
+preregistration:
+  estimand: "Observed-latency one-interval return of a delay-conditioned interior inertial reflex under a planner that simulates the same reflex"
+  primary_hypothesis: "The frozen conditioned reflex beats every deployable baseline by at least 0.05 mean return and clears that margin in at least 75% of unseen speed-latency cells"
+  non_claim: "This bounded continuous recovery is not recurring P3.2 co-design, an external AWT/WTP reproduction, or scale evidence"
+theory:
+  proposal_version: "2.1-p3.1-final-recovery-v5"
+  theory_id: "spec-6.1-6.8"
+  amendment_id: "portfolio-2.1"
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p3.1
+  recovery_version: v5-inertial-latency
+  train_event_rates: [15000.0, 60000.0]
+  eval_event_rates: [30000.0, 120000.0]
+  train_work_scales: [1, 4]
+  eval_work_scales: [2, 8]
+  planner_budget: 4
+  maximum_delay: 8
+  thresholds: [-0.1, 0.0, 0.1, 0.2, 0.3, 0.4]
+  minimum_mean_gain: 0.05
+  minimum_cell_win_fraction: 0.75
+  minimum_planner_disagreement: 0.02

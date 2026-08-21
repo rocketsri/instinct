@@ -1,0 +1,21 @@
+experiment: p5_development
+seed: 721
+seeds: [721, 722, 723, 791, 792, 793, 794]
+pilot_seeds: [721, 722, 723]
+eval_seeds: [791, 792, 793, 794]
+preregistration:
+  estimand: "Fresh-holdout adaptation gain of coordinate/type/time feedback plasticity beyond a new pilot-only threshold"
+  primary_hypothesis: "A fixed feedback-basis local credit signal clears a meaningful-effect threshold on unseen chirp tasks and topologies"
+  non_claim: "Final P5.2 recovery is not joint developmental code, general learned-plasticity novelty, or an NNiT comparison"
+theory: {proposal_version: "2.1", theory_id: "spec-8.1-8.6", amendment_id: "portfolio-2.1"}
+compute: {run_class: smoke}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p5.2-r2
+  pilot_widths: [6, 8]
+  eval_widths: [10, 12]
+  pilot_depths: [1, 2]
+  eval_depths: [3, 4]
+  pilot_steps: 7
+  eval_steps: 18
+  random_rule_count: 8

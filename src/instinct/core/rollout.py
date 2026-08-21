@@ -122,12 +122,23 @@ class ArmTrace:
     committed: FloatArray  # discounted reward from the planner's committed action
     epochs: int = 0
     planner_calls: int = 0
-    simulations: int = 0  # planning simulations consumed: the raw input to C_hw
+    simulations: int = 0  # amortized batched work; never use as per-episode C_hw
+    planner_calls_per_lane: IntArray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
+    simulations_per_lane: IntArray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
+    pending_at_horizon: BoolArray = field(default_factory=lambda: np.zeros(0, dtype=bool))
 
     @staticmethod
     def empty(n_lanes: int) -> ArmTrace:
         z = np.zeros(n_lanes)
-        return ArmTrace(total_return=z.copy(), intermediate=z.copy(), committed=z.copy())
+        zi = np.zeros(n_lanes, dtype=np.int64)
+        return ArmTrace(
+            total_return=z.copy(),
+            intermediate=z.copy(),
+            committed=z.copy(),
+            planner_calls_per_lane=zi.copy(),
+            simulations_per_lane=zi.copy(),
+            pending_at_horizon=np.zeros(n_lanes, dtype=bool),
+        )
 
 
 def simulate_arm(
@@ -160,6 +171,17 @@ def simulate_arm(
 
     while tick < cfg.horizon and alive.any():
         epoch_root = state  # what the planner sees when it starts thinking
+        launch_tick = tick
+
+        # Work starts and is charged at the epoch root, even if the episode
+        # terminates or the finite evaluation horizon ends before it lands.
+        # Charging at arrival makes an unfinished large-budget plan look free.
+        pending = planner(epoch_root, k, launch_tick)
+        launched = alive.copy()
+        trace.planner_calls += 1
+        trace.simulations += k
+        trace.planner_calls_per_lane += launched
+        trace.simulations_per_lane += launched.astype(np.int64) * k
 
         for _ in range(delay):  # the reflex fills the wait
             if tick >= cfg.horizon:
@@ -172,12 +194,15 @@ def simulate_arm(
             discount *= cfg.gamma
             tick += 1
         if tick >= cfg.horizon:
+            trace.pending_at_horizon = alive.copy()
+            break
+        if not alive.any():
             break
 
-        # The decision lands. `fresh` re-reads the world; the others do not.
-        landed = planner(state if arm == FRESH else epoch_root, k, tick)
-        trace.planner_calls += 1
-        trace.simulations += k
+        # The actual decision was computed at launch. `fresh` is an
+        # evaluation-only counterfactual that substitutes the same-budget
+        # recommendation from the arrival state without charging a second plan.
+        landed = planner(state, k, launch_tick) if arm == FRESH else pending
 
         for _ in range(cfg.commit):
             if tick >= cfg.horizon:
@@ -250,6 +275,8 @@ def simulate_lanes(
     planner_calls = np.zeros(n_combos, dtype=np.int64)
     simulations = np.zeros(n_combos, dtype=np.int64)
     epochs = np.zeros(n_combos, dtype=np.int64)
+    planner_calls_per_lane = np.zeros(total_lanes, dtype=np.int64)
+    simulations_per_lane = np.zeros(total_lanes, dtype=np.int64)
 
     # Phase bookkeeping. `remaining` counts down the current phase; `in_commit`
     # says which phase that is.
@@ -257,15 +284,24 @@ def simulate_lanes(
     in_commit = delays == 0
     landed = np.zeros(total_lanes, dtype=np.int64)
     root = state  # snapshot of each lane's epoch root, for the stale arms
+    launch_ticks = np.zeros(total_lanes, dtype=np.int64)
     discount = 1.0
 
-    # Lanes that start with no delay must plan immediately, before the first step.
-    if in_commit.any():
-        landed = _plan_into(
-            landed, root, state, in_commit, is_fresh, budgets, planner, tick=0
-        )
-        remaining = np.where(in_commit, cfg.commit, remaining)
-        _tally(planner_calls, simulations, block, in_commit, combo_budgets)
+    # Every lane launches work at its epoch root, including work whose answer
+    # will miss the finite horizon. Zero-delay lanes can apply it immediately.
+    launched = alive.copy()
+    landed = _plan_from(landed, root, launched, budgets, planner, tick=0)
+    remaining = np.where(in_commit, cfg.commit, remaining)
+    _tally(
+        planner_calls,
+        simulations,
+        planner_calls_per_lane,
+        simulations_per_lane,
+        block,
+        launched,
+        budgets,
+        combo_budgets,
+    )
 
     for tick in range(cfg.horizon):
         if not alive.any():
@@ -293,35 +329,50 @@ def simulate_lanes(
         was_commit = in_commit.copy()
 
         # Lanes finishing a commit phase start a new epoch; their root is now.
-        new_epoch = finished & was_commit
+        completed_epoch = finished & was_commit & alive
+        if completed_epoch.any():
+            epochs[np.unique(block[completed_epoch])] += 1
+        new_epoch = completed_epoch & (tick + 1 < cfg.horizon)
         if new_epoch.any():
-            epochs[np.unique(block[new_epoch])] += 1
             root = EnvState(
                 lane_ids=root.lane_ids,
                 fields={
-                    k: np.where(
-                        new_epoch.reshape((-1,) + (1,) * (v.ndim - 1)), state.fields[k], v
-                    )
+                    k: np.where(new_epoch.reshape((-1,) + (1,) * (v.ndim - 1)), state.fields[k], v)
                     for k, v in root.fields.items()
                 },
             )
             remaining = np.where(new_epoch, delays, remaining)
             in_commit = in_commit & ~new_epoch
 
-        # A decision lands for lanes that just finished a delay, plus lanes whose
-        # new epoch has no delay at all and so lands at once.
-        # A decision taken on the final tick could never be executed, so it is
-        # not taken and not charged. The reference loop exits before planning in
-        # that case; without this guard the batched path books a phantom planner
-        # call and overstates C_hw by one epoch's worth of simulations.
-        landing = (finished & ~was_commit) | (new_epoch & (delays == 0))
-        if tick + 1 >= cfg.horizon:
-            landing = np.zeros_like(landing)
-        if landing.any():
-            landed = _plan_into(
-                landed, root, state, landing, is_fresh, budgets, planner, tick=tick + 1
+            # A new plan launches now, before its reflex delay. Cache the stale
+            # answer; fresh lanes may substitute an arrival-state answer later.
+            launch_ticks = np.where(new_epoch, tick + 1, launch_ticks)
+            landed = _plan_from(landed, state, new_epoch, budgets, planner, tick=tick + 1)
+            _tally(
+                planner_calls,
+                simulations,
+                planner_calls_per_lane,
+                simulations_per_lane,
+                block,
+                new_epoch,
+                budgets,
+                combo_budgets,
             )
-            _tally(planner_calls, simulations, block, landing, combo_budgets)
+
+        # Previously launched decisions land after their delay. Fresh is an
+        # evaluation-only substitution from the shared arrival state/time.
+        delayed_landing = finished & ~was_commit & alive & (tick + 1 < cfg.horizon)
+        landing = delayed_landing | (new_epoch & (delays == 0))
+        if landing.any():
+            refresh = delayed_landing & is_fresh
+            landed = _refresh_at_arrival(
+                landed,
+                state,
+                refresh,
+                budgets,
+                launch_ticks,
+                planner,
+            )
             in_commit = in_commit | landing
             remaining = np.where(landing, cfg.commit, remaining)
 
@@ -335,44 +386,62 @@ def simulate_lanes(
             epochs=int(epochs[i]),
             planner_calls=int(planner_calls[i]),
             simulations=int(simulations[i]),
+            planner_calls_per_lane=planner_calls_per_lane[sl].copy(),
+            simulations_per_lane=simulations_per_lane[sl].copy(),
+            pending_at_horizon=(~in_commit[sl] & alive[sl]).copy(),
         )
     return out
 
 
-def _plan_into(
+def _plan_from(
     landed: IntArray,
-    root: EnvState,
-    current: EnvState,
+    source: EnvState,
     mask: BoolArray,
-    is_fresh: BoolArray,
     budgets: IntArray,
     planner: PlannerFn,
     *,
     tick: int,
 ) -> IntArray:
-    """Fill in decisions for the masked lanes.
-
-    Grouped by budget because the planner takes a scalar budget; ``fresh`` lanes
-    read the current state while the rest read their epoch root, which is the
-    single line that distinguishes stale from fresh arrival.
-    """
+    """Launch plans for masked lanes, grouped by scalar budget."""
     landed = landed.copy()
     for k in np.unique(budgets[mask]):
-        for fresh in (False, True):
-            sel = mask & (budgets == k) & (is_fresh == fresh)
-            if not sel.any():
-                continue
-            source = current if fresh else root
-            idx = np.flatnonzero(sel)
-            landed[idx] = planner(source.take(idx), int(k), tick)
+        sel = mask & (budgets == k)
+        idx = np.flatnonzero(sel)
+        landed[idx] = planner(source.take(idx), int(k), tick)
+    return landed
+
+
+def _refresh_at_arrival(
+    landed: IntArray,
+    current: EnvState,
+    mask: BoolArray,
+    budgets: IntArray,
+    launch_ticks: IntArray,
+    planner: PlannerFn,
+) -> IntArray:
+    """Substitute fresh recommendations without charging a second plan."""
+    landed = landed.copy()
+    for launch_tick in np.unique(launch_ticks[mask]):
+        tick_mask = mask & (launch_ticks == launch_tick)
+        landed = _plan_from(
+            landed,
+            current,
+            tick_mask,
+            budgets,
+            planner,
+            tick=int(launch_tick),
+        )
     return landed
 
 
 def _tally(
     planner_calls: IntArray,
     simulations: IntArray,
+    planner_calls_per_lane: IntArray,
+    simulations_per_lane: IntArray,
     block: IntArray,
     mask: BoolArray,
+    budgets: IntArray,
     combo_budgets: IntArray,
 ) -> None:
     """Charge one planner call, and its simulations, per planning *combination*.
@@ -384,6 +453,8 @@ def _tally(
     """
     if not mask.any():
         return
+    planner_calls_per_lane[mask] += 1
+    simulations_per_lane[mask] += budgets[mask]
     planning = np.unique(block[mask])
     planner_calls[planning] += 1
     simulations[planning] += combo_budgets[planning]

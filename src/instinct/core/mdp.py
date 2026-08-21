@@ -135,6 +135,9 @@ class TabularMDP:
     gamma: float
     terminal: BoolArray
     name: str = "mdp"
+    # Terminal does not imply failure (goals are terminal too). ``None`` means
+    # that failure semantics were not supplied.
+    failure: BoolArray | None = None
     # Cache for reflex phases, keyed by (policy fingerprint, delay).
     _phase_cache: dict[tuple[int, int], AffineMap] = field(
         default_factory=dict, repr=False, compare=False
@@ -162,6 +165,11 @@ class TabularMDP:
             raise ValueError(f"P rows must sum to 1; worst at state/action {worst}")
         if (self.P < 0).any():
             raise ValueError("P has negative entries")
+        if self.failure is not None:
+            if self.failure.shape != (S,):
+                raise ValueError(f"failure has shape {self.failure.shape}, expected {(S,)}")
+            if np.any(self.failure & ~self.terminal):
+                raise ValueError("failure states must be terminal")
         term = np.flatnonzero(self.terminal)
         if term.size:
             self_loop = self.P[term][:, :, term].diagonal(axis1=0, axis2=2)
