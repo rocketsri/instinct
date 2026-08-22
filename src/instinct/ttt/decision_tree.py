@@ -52,6 +52,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy import stats as scipy_stats
 
+from instinct.core.stats import spearman
+
 __all__ = [
     "ClusterReport",
     "DecisionReport",
@@ -220,14 +222,14 @@ def held_out_rank_score(
         f = np.asarray(features[k], dtype=np.float64)
         if f.shape[0] != n:
             raise ValueError(f"feature {k!r} has {f.shape[0]} entries, expected {n}")
-        rho_tr = scipy_stats.spearmanr(f[tr], u[tr]).statistic
+        rho_tr = spearman(f[tr], u[tr])
         rho_tr = 0.0 if not np.isfinite(rho_tr) else float(rho_tr)
         signs[k] = 1.0 if rho_tr >= 0 else -1.0
-        rho_te = scipy_stats.spearmanr(f[te], u[te]).statistic
+        rho_te = spearman(f[te], u[te])
         per_feature[k] = 0.0 if not np.isfinite(rho_te) else float(rho_te)
 
     combined_te = np.mean([signs[k] * _rank_z(np.asarray(features[k])[te]) for k in keys], axis=0)
-    rho = scipy_stats.spearmanr(combined_te, u[te]).statistic
+    rho = spearman(combined_te, u[te])
     rho = 0.0 if not np.isfinite(rho) else float(rho)
     # AUC is stated for "predicts a *harmful* write", so the score is negated:
     # low utility is the positive class.

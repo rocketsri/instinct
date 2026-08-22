@@ -20,7 +20,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 from PIL import Image
-from scipy import stats as scipy_stats
+
+from instinct.core.stats import spearman
 
 __all__ = ["RecoveryConfig", "RecoveryResult", "run_recovery"]
 
@@ -384,7 +385,7 @@ def run_recovery(seed: int, cfg: RecoveryConfig) -> RecoveryResult:
         downstream_damage.append(
             -min(0.0, _improvement(initial, delta, streams["downstream"][t - cfg.min_age]))
         )
-    correlation = scipy_stats.spearmanr(oracle_damage, downstream_damage).statistic
+    correlation = spearman(np.asarray(oracle_damage), np.asarray(downstream_damage))
     correlation = 0.0 if not np.isfinite(correlation) else float(correlation)
     matched = [
         arm

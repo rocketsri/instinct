@@ -29,6 +29,7 @@ __all__ = [
     "kendall_tau",
     "paired_bootstrap_ci",
     "paired_permutation_test",
+    "spearman",
 ]
 
 FloatArray = npt.NDArray[np.float64]
@@ -182,3 +183,18 @@ def kendall_tau(a: FloatArray, b: FloatArray) -> float:
     if a.size < 2:
         return float("nan")
     return float(scipy_stats.kendalltau(a, b).statistic)
+
+
+def spearman(a: FloatArray, b: FloatArray) -> float:
+    """Rank correlation for a paired identifiability check.
+
+    Mirrors :func:`kendall_tau`'s shape exactly: paired-by-default, NaN below
+    two points, no NaN-to-zero substitution. A caller gating on
+    ``spearman(...) >= threshold`` therefore fails closed on degenerate input
+    rather than silently passing or failing it.
+    """
+    a, b = np.asarray(a), np.asarray(b)
+    assert_paired(a, b, what="rankings")
+    if a.size < 2:
+        return float("nan")
+    return float(scipy_stats.spearmanr(a, b).statistic)

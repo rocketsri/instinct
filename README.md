@@ -23,11 +23,11 @@ and several bounded learned pilots are implemented. Scale stages remain gated.
 | Program | Question | Status |
 | --- | --- | --- |
 | **P1** computation–freshness atlas | When does added computation lose value because the world advanced while you thought? | Exact Sigma instrument retained; conditional P1.1 atlas archived after two baseline-dominated recoveries |
-| **P2** harmful-write TTT | Can a test-time memory tell useful plasticity from destructive plasticity? | P2.1 synthetic GO; realistic T4 runner complete, but train-only pilots expose oracle/downstream misalignment; held-out recovery unconsumed |
+| **P2** harmful-write TTT | Can a test-time memory tell useful plasticity from destructive plasticity? | P2.1 synthetic GO; the diagnosed F2 estimator repair ran on real T4/CIFAR-10 and stayed unidentifiable at every write fraction — archived as unidentifiable under the frozen benchmark; scientific recovery unconsumed; P7 stays locked |
 | **P3** planner–reflex co-design | Can the fast policy improve planner arrival state? | Exact P3.0 retained; learned P3.1/P3.2 direction archived after two recoveries collapsed to simple baselines |
 | **P4** prefix recovery slack | Does prefix-wise recovery training beat matched verification? | Exact environment and estimator retained; P4.2 archived after slack/verifier failures at matched calls |
 | **P5** developmental program | Can fixed code generate initialization and local plasticity? | P5.2 archived after both local-plasticity recoveries missed pilot-derived thresholds; P5.3 locked |
-| **P6** anytime-certified refinement | Risk certificates for action prefixes across compute exits. | P6.3 bounded shift-robust CPU frontier GO; larger systems/assumption validation remains |
+| **P6** anytime-certified refinement | Risk certificates for action prefixes across compute exits. | P6.3/P6.4 bounded CPU GO; P6.5 realistic closed-form simulator confirmed validity/nonvacuity transfer unmodified, but the utility gain over robust union did not — closed NARROW |
 | **P7** fixed-shape admission | Can semantic selection preserve large-update utilization? | queue/audit simulator only; locked on qualifying realistic P2.2 evidence |
 
 ## Why one codebase and not three

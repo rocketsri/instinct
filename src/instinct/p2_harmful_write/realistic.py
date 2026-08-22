@@ -19,7 +19,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 from PIL import Image
-from scipy import stats as scipy_stats
+
+from instinct.core.stats import spearman
 
 __all__ = ["P2PilotConfig", "P2PilotResult", "run_natural_image_pilot"]
 
@@ -390,7 +391,7 @@ def run_natural_image_pilot(seed: int, cfg: P2PilotConfig) -> P2PilotResult:
     matched_compute_passed = len({arm.deployable_compute_units for arm in matched_arms}) == 1
     aged = np.array([score.damage for score in candidates])
     downstream = np.array([score.aged_downstream_damage for score in candidates])
-    correlation = scipy_stats.spearmanr(aged, downstream).statistic
+    correlation = spearman(aged, downstream)
     correlation = 0.0 if not np.isfinite(correlation) else float(correlation)
     identifiability_passed = correlation >= cfg.correlation_threshold and max_probe_uses <= 4
 

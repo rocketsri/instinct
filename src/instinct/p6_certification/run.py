@@ -39,6 +39,10 @@ def validate(config: ProposalRunConfig) -> list[PrerequisiteCheck]:
         from instinct.p6_certification.learned_dynamics import validate_p6_4
 
         return validate_p6_4(config)
+    if stage == "p6.5":
+        from instinct.p6_certification.realistic import validate_p6_5
+
+        return validate_p6_5(config)
     if stage != "p6.0-p6.1":
         return [PrerequisiteCheck("known P6 stage", False, stage)]
     checks = common_checks(config, "p6_certification")
@@ -108,9 +112,13 @@ def run(config: ProposalRunConfig, writer: ResultsWriter) -> VerdictReport:
         from instinct.p6_certification.learned_dynamics import run_p6_4
 
         return run_p6_4(config, writer)
+    if stage == "p6.5":
+        from instinct.p6_certification.realistic import run_p6_5
+
+        return run_p6_5(config, writer)
     if stage != "p6.0-p6.1":
         raise ValueError(
-            f"unknown P6 stage {stage!r}; expected p6.0-p6.1 through p6.4"
+            f"unknown P6 stage {stage!r}; expected p6.0-p6.1 through p6.5"
         )
     checks = validate(config)
     if not all(check.passed for check in checks):

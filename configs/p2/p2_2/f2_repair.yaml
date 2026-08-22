@@ -1,0 +1,55 @@
+experiment: p2_harmful_write
+seed: 251
+seeds: [251, 252]
+pilot_seeds: [251]
+eval_seeds: [252]
+preregistration:
+  estimand: "F2 estimator repair: candidate write utility measured at the actual per-replay model state, with an iteratively rescored oracle, multi-age/regime retention audit, and isolated-write downstream damage labels, on fresh train-only CIFAR-10 units"
+  primary_hypothesis: "Repairing the reference-path staleness in the offline oracle's scoring restores identifiability between stored utility/damage and isolated downstream effect, per docs/reviews/p2/v6/theory_literature_synthesis.md's exact archival condition"
+  non_claim: "This repairs the F2 estimator only; it is not a theory amendment, does not itself consume recovery cycle 2, and does not by itself qualify P7"
+theory:
+  proposal_version: "2.1"
+  theory_id: "spec-5.1-5.10/f2-repair-branch"
+  amendment_id: "portfolio-2.1-f2r1"
+compute:
+  run_class: t4
+resume:
+  checkpoint_every_minutes: 15.0
+  allow_resume: true
+params:
+  stage: p2_2_r2
+  scoring_mode: f2_repair
+  cifar10_archive: /private/tmp/instinct-p2-artifacts/cifar-10-python.tar.gz
+  resnet18_weights: /private/tmp/instinct-p2-artifacts/resnet18-f37072fd.pth
+  model: resnet18_imagenet1k_v1
+  adapted_parameters: batchnorm_affine_and_cifar10_linear_head
+  eval_partition_seed: 241
+  f2_repair_source_offset: 4096
+  f2_repair_audit_pool_size: 4096
+  f2_repair_downstream_label_pool_size: 1536
+  horizons: [1, 2, 4]
+  horizon_weights: [0.5, 0.3, 0.2]
+  retention_lambda: 1.0
+  write_fractions: [0.1, 0.25, 0.5]
+  random_replicates: 8
+  baselines: [dense, never, random, validation, eata, sar, reset, oracle]
+  require_measured_wall_clock_match: true
+  require_downstream_accuracy: true
+  external_runner: benchmarks/p2_recovery2_colab.py
+  artifact_schema: instinct.p2.recovery2.f2repair.v1
+  full_eval_confirmation: OPEN_FROZEN_P2_R2_TEST_PARTITION
+  n_steps: 32
+  min_age: 4
+  regime_length: 8
+  source_epochs: 2
+  source_batch_size: 128
+  adaptation_lr: 0.001
+  cost_loss_per_second: 0.001
+  reset_every: 4
+  compute_match_tolerance: 0.25
+  rescoring_block_size: 2
+  audit_probe_budget: 3
+  audit_ages: [4, 8, 12]
+  spearman_gate: 0.25
+  minimum_accuracy_gain: 0.005
+  minimum_source_accuracy: 0.45

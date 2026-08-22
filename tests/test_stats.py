@@ -24,6 +24,7 @@ from instinct.core.stats import (
     kendall_tau,
     paired_bootstrap_ci,
     paired_permutation_test,
+    spearman,
 )
 
 # -- pairing discipline ---------------------------------------------------
@@ -188,6 +189,29 @@ def test_kendall_tau_catches_a_curve_that_fits_but_misorders() -> None:
     fitted = np.array([1.01, 1.0, 3.01, 3.0])  # tiny errors, two inversions
     assert np.allclose(oracle, fitted, atol=0.02)
     assert kendall_tau(oracle, fitted) < 1.0
+
+
+def test_spearman_endpoints() -> None:
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    assert spearman(x, x) == pytest.approx(1.0)
+    assert spearman(x, -x) == pytest.approx(-1.0)
+
+
+def test_spearman_matches_scipy_on_a_toy_paired_vector() -> None:
+    from scipy import stats as scipy_stats
+
+    a = np.array([2.0, 1.0, 4.0, 3.0, 5.0])
+    b = np.array([1.5, 2.5, 3.0, 5.0, 4.0])
+    assert spearman(a, b) == pytest.approx(scipy_stats.spearmanr(a, b).statistic)
+
+
+def test_spearman_below_two_points_is_nan() -> None:
+    assert np.isnan(spearman(np.array([1.0]), np.array([1.0])))
+
+
+def test_spearman_rejects_unpaired_input() -> None:
+    with pytest.raises(ValueError, match="not paired"):
+        spearman(np.zeros(4), np.zeros(3))
 
 
 # -- anytime validity -----------------------------------------------------

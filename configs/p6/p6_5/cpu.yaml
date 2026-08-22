@@ -1,0 +1,31 @@
+experiment: p6_certification
+seed: 761
+seeds: [751, 752, 761]
+pilot_seeds: [751, 752]
+eval_seeds: [761]
+preregistration:
+  estimand: "True-environment safe-prefix gain of shift-robust CSA over robust union for a pilot-fitted grid model of a genuinely continuous, closed-form-discretized InertialIntervention, under held-out structural shifts of the physical parameters"
+  primary_hypothesis: "At 4096 rollouts, robust CSA remains valid and nonvacuous under every physical structural-shift family and gains at least 0.2 actions over robust union, with the certificate/comparator/mismatch core unmodified from P6.0-P6.4"
+  non_claim: "A discretized closed-form grid model of one continuous-control toy is not deployment evidence; the exchangeability stress cell is descriptive, not gated; and this does not establish general CSA or AVCRC equivalence"
+theory: {proposal_version: "2.1-p6.5-v1", theory_id: "spec-9.1-9.6-p6.5-realistic-simulator", amendment_id: "none"}
+compute: {run_class: cpu, cpu_hours_max: 6.0}
+resume: {checkpoint_every_minutes: 15.0, allow_resume: true}
+params:
+  stage: p6.5
+  confidence_delta: 0.05
+  episode_risk: 0.1
+  false_certification_tolerance: 0.05
+  gain_actions: 0.2
+  csa_bet_margin: 0.02
+  repetitions: 64
+  sample_sizes: [512, 1024, 2048, 4096]
+  declared_looks: 4
+  pilot_trajectories: 4000
+  calibration_samples: 4096
+  clustered_unit_group_size: 8
+  gamma: 0.97
+  position_bins: 41
+  velocity_bins: 61
+  velocity_range: [-1.5, 1.5]
+  action_schedule: [2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 2, 1]
+  environment: {}

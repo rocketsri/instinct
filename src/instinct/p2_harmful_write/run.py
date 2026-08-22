@@ -123,6 +123,7 @@ def _run_p2_2_recovery2(
 
     from instinct.p2_harmful_write.recovery2 import inspect_recovery2
 
+    scoring_mode = str(config.params.get("scoring_mode", "frozen_reference"))
     preflight = inspect_recovery2(dict(config.params))
     starts = [start for start, _ in preflight.fixed_partitions.values()]
     stops = [stop for _, stop in preflight.fixed_partitions.values()]
@@ -149,10 +150,16 @@ def _run_p2_2_recovery2(
         PrerequisiteCheck("fresh fixed whole-image stream partitions", partitions_disjoint),
         PrerequisiteCheck("frozen P2.2 realistic contract", preflight.realistic_contract_passed),
         PrerequisiteCheck("P7 dependency remains locked", not preflight.qualifies_p7),
+        PrerequisiteCheck(
+            "known P2.2 recovery-2 scoring mode",
+            scoring_mode in {"frozen_reference", "f2_repair"},
+            scoring_mode,
+        ),
     ]
-    writer.write_metrics([preflight.metric_row()])
+    writer.write_metrics([{**preflight.metric_row(), "scoring_mode": scoring_mode}])
     writer.event(
         stage="p2.2-r2-preflight",
+        scoring_mode=scoring_mode,
         realistic_contract_passed=preflight.realistic_contract_passed,
         qualifies_p7=preflight.qualifies_p7,
         runtime_detail=preflight.runtime_detail,

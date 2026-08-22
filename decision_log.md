@@ -1,5 +1,43 @@
 # Decision log
 
+## 2026-08-22 — P2 F2 repair archived; P6.5 realistic-simulator NARROW
+
+- Diagnosed P2's recovery-2 pilot failure as an F2 estimator/identifiability
+  problem (reference-path staleness: candidates scored on a write-all
+  trajectory but replayed on a sparse one) rather than a mechanism failure, per
+  `docs/reviews/p2/v6/theory_literature_synthesis.md`. Implemented the one
+  permissible pilot-only repair (`docs/reviews/p2/v7/f2_repair_preregistration.md`):
+  masked live scoring, isolated-write downstream damage labels, iterative
+  rescoring, and corrected dense-arm step accounting. Ran the repaired
+  estimator on real T4/CIFAR-10 at the preregistered full pilot scale (24
+  candidates, 20 isolated labels). Both archival gates fail at every write
+  fraction (`0.1`/`0.25`/`0.5`): identifiability and mechanism-ceiling are both
+  `false` throughout, and oracle_ceiling downstream accuracy never beats
+  never-write (`0.543` vs `0.563`, `0.484` vs `0.563`, `0.395` vs `0.563`).
+  P2 is archived as **unidentifiable under the frozen utility and benchmark**.
+  The estimator bug was real and is fixed, but fixing it did not change the
+  underlying finding. P2's scientific recovery remains fully unconsumed, the
+  reserved seed-241 test partition was never opened, and P7 stays locked.
+- P6.4's verdict text called for "a fresh realistic simulator or logged-system
+  integration" without a preregistered scope for it; wrote a continuation memo
+  (`docs/reviews/p6/v5/continuation_memo.md`) treating that as a declared,
+  budgeted scope expansion rather than an unexamined continuation, per the
+  portfolio's own stopping-budget rule. Discretized `InertialIntervention`
+  into a closed-form-exact `TabularMDP` (verified independently: the
+  transition kernel is degenerate/1-D, driven by a single Gaussian disturbance
+  term, and the implementation correctly integrates over it rather than
+  treating position and velocity as an independent bivariate pair) and paired
+  it with the certificate/comparator/mismatch machinery unmodified. Ran
+  P6.5 (`configs/p6/p6_5/cpu.yaml`) to a verdict: worst one-sided 95% upper
+  bound `0.046`, minimum nonvacuity `0.375`, model/true validity gap `1.000` —
+  all pass — but gain over robust union is `-0.082` against a `+0.200` target.
+  The certificate machinery's *validity* generalizes unmodified to a real
+  continuous stochastic environment (confirmed zero-diff on
+  `certificates.py`/`comparators.py`/`mismatch.py`); its *utility* advantage
+  over the simpler robust-union baseline does not transfer from the toy
+  3-state chain. P6 closes **NARROW** on this axis; no further P6 stage is
+  planned.
+
 ## 2026-08-17 — recovery synthesis and successful-direction continuation
 
 - P1 recovery 2 assigned zero weight to unstable M4 and fell back exactly to
